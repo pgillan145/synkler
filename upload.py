@@ -1,8 +1,8 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import config
 import hashlib
-#import minorimpact
+import minorimpact
 import os
 import os.path
 import pickle
@@ -53,8 +53,8 @@ while True:
     for f in os.listdir(upload_dir):
         if (re.search("^\.", f)):
             continue
-        md5 = md5dir(upload_dir + "/" + f)
-        size = dirsize(upload_dir + "/" + f)
+        md5 = minorimpact.md5dir(upload_dir + "/" + f)
+        size = minorimpact.dirsize(upload_dir + "/" + f)
         upload_data = {"filename":f, "md5":md5, "size":size, "pickle_protocol":pickle.HIGHEST_PROTOCOL}
         print("sending about " + f + " to synkler")
         print(upload_data)
