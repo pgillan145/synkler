@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import config
 import hashlib
 import minorimpact
 import os
