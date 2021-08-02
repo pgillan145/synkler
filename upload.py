@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import config
 import hashlib
 import minorimpact
@@ -14,6 +15,14 @@ import time
 upload_dir = config.file_dir
 rsync = config.rsync
 
+parser = argparse.ArgumentParser(description="Monitor directory and initiate synkler transfers")
+#parser.add_argument('filename', nargs="?")
+parser.add_argument('--verbose', help = "extra loud output", action='store_true')
+#parser.add_argument('--logging', help = "turn on logging", action='store_true')
+args = parser.parse_args()
+
+
+
 connection = pika.BlockingConnection(pika.ConnectionParameters(host=config.synkler_server))
 channel = connection.channel()
 
@@ -25,13 +34,10 @@ channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='done')
 channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='upload')
 
 files = {}
-#data_file = config.data_dir + "/files.pickle"
-#if (os.path.exists(data_file)):
-#   files = pickle.load(open(data_file, "rb"))
 
 while True:
 # collect all the files that need to be uploaded
-    print("my files:")
+    if (args.verbose): print(f"checking {upload_dir}")
     churn = True
     while churn:
         churn = False
@@ -41,78 +47,72 @@ while True:
             size = minorimpact.dirsize(upload_dir + "/" + f)
             mtime = os.path.getmtime(upload_dir + "/" + f) 
             if f in files:
-                if files[f]['state'] != 'new':
-                    continue
-                if mtime == files[f]['mtime'] and size == files[f]['size']:
-                    # Don't md5 the file until we know the file has stopped being written to, just in case
-                    if files[f]['md5'] is None:
-                        md5 = minorimpact.md5dir(upload_dir + "/" + f)
-                        files[f]['md5'] = md5
-                else:
-                    print(f"mtime({mtime}) and size({size}) aren't settled for {f}({files[f]['mtime']},{files[f]['size']})")
-                    files[f]['mtime'] = mtime
-                    files[f]['size'] = size
-                    churn = True
+                if files[f]['state'] == 'new':
+                    if mtime == files[f]['mtime'] and size == files[f]['size']:
+                        # Don't md5 the file until we know the file has stopped being written to, just in case
+                        if files[f]['md5'] is None:
+                            md5 = minorimpact.md5dir(upload_dir + "/" + f)
+                            files[f]['md5'] = md5
+                    else:
+                        if (args.verbose): print(f"mtime({mtime}) and size({size}) aren't settled for {f}({files[f]['mtime']},{files[f]['size']})")
+                        files[f]['mtime'] = mtime
+                        files[f]['size'] = size
+                        churn = True
             else:
                 # TODO: Apparently the server is going to have to tell us what pickle protocols it knows.  This machine supports '5',
                 #   but the server only supports '4'...
+                if (args.verbose): print(f"found {f}")
                 files[f] = {'filename':f, 'pickle_protocol':4, 'mtime':mtime, 'size':size, 'state':'new', 'md5':None, "dir":upload_dir}
                 churn = True
         time.sleep(1)
 
     for f in files:
         if (files[f]["state"] == "new"):
-            print(files[f])
             channel.basic_publish(exchange='synkler', routing_key=files[f]['state'], body=pickle.dumps(files[f]))
 
     # Pull the list of files on the middle upload server
-    print("uploads:")
+    if (args.verbose): print("checking for synkler commands")
     method,properties,body = channel.basic_get( queue_name, True)
     while body != None:
         routing_key = method.routing_key
         file_data = pickle.loads(body)
-        filename = file_data['filename']
-        if filename not in files:
-            continue
-        md5 = file_data['md5']
-        size = file_data['size']
-        mtime = file_data['mtime']
-        if (routing_key == "done"):
-            if files[filename]['md5'] == md5 and files[filename]['size'] == size and files[filename]["mtime"] == mtime and files[filename]["state"] != "done":
-                # TODO: Move or delete this file or whatever.
-                print(f"DONE {filename}")
-                files[filename]["state"] = "done"
-            else:
-                # TODO: start including the hostname in file_data so I know what server is actuall sending these messages.
-                print(f"ERROR: {filename} on final destination doesn't match")
-                files[filename]["state"] = "error"
-        elif (routing_key == "upload"):
-            if (files[filename]["state"] != "new"):
-                #print(f"{filename} status is {files[filename]['state']}")
-                continue
-#        if (files[filename]['md5'] == md5 and files[filename]['size'] == size and files[filename]["mtime"] == mtime):
-#                print(f"uploaded {filename}")
-#                files[filename]["state"] = "uploaded"
-#                continue
-            dest_dir = None
-            if ("dest_dir" in file_data):
-                dest_dir = file_data['dest_dir']
-            else:
-                dest_dir = file_data['dir']
+        f = file_data['filename']
+        if f in files:
+            md5 = file_data['md5']
+            size = file_data['size']
+            mtime = file_data['mtime']
+            if (routing_key == "done"):
+                if (files[f]["state"] == "new"):
+                    if files[f]['md5'] == md5 and files[f]['size'] == size and files[f]["mtime"] == mtime:
+                        # TODO: Move or delete this file or whatever.
+                        if (args.verbose): print(f"DONE {f}")
+                        files[f]["state"] = "done"
+                    else:
+                        # TODO: start including the hostname in file_data so I know what server is actuall sending these messages.
+                        if (args.verbose): print(f"ERROR: {f} on final destination doesn't match")
+                        # TODO: definitely need to figure out a good way to restart the process to try and eliminate errors.  Setting 
+                        #   it back to 'new' might do it, but the problem is that the end server doesn't know it's got a bad copy,
+                        #   and if rsync bunged up someone along the way, i don't know why it wouldn't keep doing so...
+                        files[f]["state"] = "error"
+            elif (routing_key == "upload"):
+                if (files[f]["state"] == "new"):
+                    dest_dir = None
+                    if ("dest_dir" in file_data):
+                        dest_dir = file_data['dest_dir']
+                    else:
+                        dest_dir = file_data['dir']
 
-            if dest_dir is not None:
-                print("  uploading " + filename)
-                rsync_command = [rsync, "--archive", "--partial", upload_dir + "/" + filename, config.synkler_server + ":" + dest_dir + "/"]
-                print(' '.join(rsync_command))
-                return_code = subprocess.call(rsync_command)
-                print("Output: ", return_code)
+                    if dest_dir is not None and (files[f]['md5'] != md5 or files[f]['size'] != size or files[f]["mtime"] != mtime):
+                        if (args.verbose): print("  uploading " + f)
+                        rsync_command = [rsync, "--archive", "--partial", upload_dir + "/" + f, config.synkler_server + ":" + dest_dir + "/"]
+                        if (args.verbose): print(' '.join(rsync_command))
+                        return_code = subprocess.call(rsync_command)
+                        if (args.verbose): print("Output: ", return_code)
 
         # get the next file from the queue
         method,properties,body = channel.basic_get( queue_name, True)
 
-    print("\n")
-    #data_file = config.data_dir + "/files.pickle"
-    #pickle.dump(files, open(data_file, "wb"))
+    if (args.verbose): print("\n")
     time.sleep(5)
 
 
