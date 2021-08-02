@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import config
 import hashlib
 import minorimpact
@@ -15,22 +16,24 @@ download_dir = config.download_dir
 synkler_server = config.synkler_server
 rsync = config.rsync
 
+parser = argparse.ArgumentParser(description="Synkler download script")
+#parser.add_argument('filename', nargs="?")
+parser.add_argument('--verbose', help = "extra loud output", action='store_true')
+#parser.add_argument('--logging', help = "turn on logging", action='store_true')
+args = parser.parse_args()
+
 connection = pika.BlockingConnection(pika.ConnectionParameters(host=synkler_server))
 channel = connection.channel()
 
 # message queues
-channel.exchange_declare(exchange='synkler', exchange_type='direct')
-channel.queue_declare(queue='new')
-channel.queue_bind(exchange='synkler', queue='new')
-channel.queue_declare(queue='upload')
-channel.queue_bind(exchange='synkler', queue='upload')
-channel.queue_declare(queue='download')
-channel.queue_bind(exchange='synkler', queue='download')
-channel.queue_declare(queue='done')
-channel.queue_bind(exchange='synkler', queue='done')
+channel.exchange_declare(exchange='synkler', exchange_type='topic')
+result = channel.queue_declare(queue='', exclusive=True)
+queue_name = result.method.queue
+channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='download')
 
 files = {}
 while True:
+    if (args.verbose): print(f"checking {download_dir}")
     churn = True
     while churn:
         churn = False
@@ -49,43 +52,38 @@ while True:
                     files[f]["size"] = size
                     files[f]["mtime"] = mtime
             else:
-                files[f]  = {"filename":f, "size":size, "md5":None, "mtime":mtime}
+                files[f]  = {"filename":f, "size":size, "md5":None, "mtime":mtime, "dir":config.download_dir, "state":"download"}
                 churn = True
         time.sleep(1)
 
-    #    upload_data = {"filename":f, "md5":md5, "size":size, "pickle_protocol":pickle.HIGHEST_PROTOCOL}
-    #    print("sending about " + f + " to synkler")
-    #    print(upload_data)
-    #    # report the list of files to the central server.  It doesn't matter if
-    #    #   we've sent them before, the server will keep track of duplicates.
-    #    channel.basic_publish(exchange='synkler', routing_key='new', body=pickle.dumps(upload_data))
-
-    print("downloads:")
-    download = channel.basic_get( 'download', True)
-    while download[2] != None:
-        file_data = pickle.loads(download[2])
-        print(file_data)
-        filename = file_data['filename']
+    if (args.verbose): print("checking for synkler commands")
+    method, properies, body = channel.basic_get( queue_name, True)
+    while body != None:
+        file_data = pickle.loads(body)
+        f = file_data['filename']
         dl_dir = file_data['dir']
         md5 = file_data['md5']
         size = file_data["size"]
-        if (filename not in files or files[filename]["size"] != size or  md5 != files[filename]["md5"]):
-            rsync_command = [rsync, "--archive", "--partial", synkler_server + ":" + dl_dir + "/\"" + filename + "\"", download_dir + "/"]
-            print(' '.join(rsync_command))
+        mtime = file_data["mtime"]
+        if (f not in files or files[f]["size"] != size or  md5 != files[f]["md5"] or files[f]["mtime"] != mtime):
+            rsync_command = [rsync, "--archive", "--partial", synkler_server + ":" + dl_dir + "/\"" + f + "\"", download_dir + "/"]
+            if (args.verbose): print(' '.join(rsync_command))
 
             return_code = subprocess.call(rsync_command)
-            print("Output: ", return_code)
+            if (args.verbose): print("Output: ", return_code)
+        else:
+            files[f]["state"] = "done"
         # get the next file from the queue
-        download = channel.basic_get('download', True)
+        method, properies, body = channel.basic_get( queue_name, True)
 
-    print("done")
+    if (args.verbose): print("reporting download status to synkler")
     for f in files:
-        print(files[f])
-        channel.basic_publish(exchange='synkler', routing_key='done', body=pickle.dumps(files[f]))
-    print("\n")
+        if (files[f]["state"] == "done"):
+            if (args.verbose): print(f"{f} done")
+            channel.basic_publish(exchange='synkler', routing_key='done', body=pickle.dumps(files[f]))
+    if (args.verbose): print("\n")
 
     time.sleep(5)
-
 
 # close the connection
 connection.close()
