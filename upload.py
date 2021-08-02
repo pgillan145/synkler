@@ -87,6 +87,16 @@ while True:
                         # TODO: Move or delete this file or whatever.
                         if (args.verbose): print(f"DONE {f}")
                         files[f]["state"] = "done"
+                        if (config.cleanup_script is not None):
+                            command = config.cleanup_script.split(" ")
+                            for i in range(len(command)):
+                                if command[i] == "%f":
+                                    command[i] = config.file_dir + "/" + f
+                                    # Not sure if I need the quotes, subprocess might handle that for me.
+#command[i] = "\"" + command[i] + "\""
+                            if (args.verbose): print(' '.join(command))
+                            return_code = subprocess.call(command)
+                            if (args.verbose): print("Output: ", return_code)
                     else:
                         # TODO: start including the hostname in file_data so I know what server is actuall sending these messages.
                         if (args.verbose): print(f"ERROR: {f} on final destination doesn't match")
