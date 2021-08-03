@@ -91,7 +91,7 @@ while True:
                             command = config.cleanup_script.split(" ")
                             for i in range(len(command)):
                                 if command[i] == "%f":
-                                    command[i] = config.file_dir + "/" + f
+                                    command[i] = f
                                     # Not sure if I need the quotes, subprocess might handle that for me.
 #command[i] = "\"" + command[i] + "\""
                             if (args.verbose): print(' '.join(command))

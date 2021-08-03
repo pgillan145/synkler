@@ -6,5 +6,5 @@ synkler_server = "localhost"
 
 # command to run after a complete transfer.
 # options:
-#   %f - full path/filename of the completed file.
+#   %f - filename of the completed file.
 #cleanup_script = "mv -a %f /tmp/trash"
