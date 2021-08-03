@@ -17,9 +17,7 @@ synkler_server = config.synkler_server
 rsync = config.rsync
 
 parser = argparse.ArgumentParser(description="Synkler download script")
-#parser.add_argument('filename', nargs="?")
 parser.add_argument('--verbose', help = "extra loud output", action='store_true')
-#parser.add_argument('--logging', help = "turn on logging", action='store_true')
 args = parser.parse_args()
 
 connection = pika.BlockingConnection(pika.ConnectionParameters(host=synkler_server))
@@ -51,9 +49,6 @@ while True:
                     churn = True
                     files[f]["size"] = size
                     files[f]["mtime"] = mtime
-            else:
-                files[f]  = {"filename":f, "size":size, "md5":None, "mtime":mtime, "dir":config.download_dir, "state":"download"}
-                churn = True
         time.sleep(1)
 
     if (args.verbose): print("checking for synkler commands")
@@ -65,8 +60,10 @@ while True:
         md5 = file_data['md5']
         size = file_data["size"]
         mtime = file_data["mtime"]
-        if (f not in files or files[f]["size"] != size or  md5 != files[f]["md5"] or files[f]["mtime"] != mtime):
-            rsync_command = [rsync, "--archive", "--partial", synkler_server + ":" + dl_dir + "/\"" + f + "\"", download_dir + "/"]
+        if (f not in files):
+            files[f]  = {"filename":f, "size":0, "md5":None, "mtime":0, "dir":config.download_dir, "state":"download"}
+        elif (files[f]["size"] != size or  md5 != files[f]["md5"] or files[f]["mtime"] != mtime):
+            rsync_command = [rsync, "--archive", "--partial", synkler_server + ":\"" + dl_dir + "/" + f + "\"", download_dir + "/"]
             if (args.verbose): print(' '.join(rsync_command))
 
             return_code = subprocess.call(rsync_command)
@@ -82,6 +79,11 @@ while True:
             if (args.verbose): print(f"{f} done")
             channel.basic_publish(exchange='synkler', routing_key='done', body=pickle.dumps(files[f]))
     if (args.verbose): print("\n")
+
+    # TODO: Figure out how to clear a file out of the list once it's finished and removed
+    #   from them upload server.  I can use 'mtime' remove anything that hasn't been updated in like half an hour,,
+    #    but I have to convert the filenames into an array and then delete it that way -- otherwise I get the stupid
+    #   "dictionary has changed" error.  It's not hard, I'm just tired.
 
     time.sleep(5)
 
