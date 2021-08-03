@@ -10,6 +10,7 @@ import os.path
 import pickle
 import pika
 import re
+import shutil
 import time
 
 parser = argparse.ArgumentParser(description="Synkler middle manager")
@@ -53,19 +54,26 @@ while (True):
     for f in os.listdir(config.download_dir):
         if (re.search("^\.", f)):
             continue
-        if (f not in files):
-            # TODO: delete these files from the download directory after X minutes have passed -- there's a delay
-            #   during the upload.py startup that would cause these to be deleted as soon as this script starts and
-            #   then they'd be uploaded again a few seconds later... maybe?
-            if (args.verbose): print("DELETE:" + f + "?")
-            continue
 
         size = minorimpact.dirsize(config.download_dir + "/" + f)
         mtime = os.path.getmtime(config.download_dir + "/" + f)
+        if (f not in files):
+            # These files are more than 30 minutes old and haven't been reported in, they can be
+            #   axed.
+            if (int(time.time()) - mtime > 1800):
+                if (args.verbose): print("deleting " + config.download_dir + "/" + f)
+                if (os.path.isdir(config.download_dir + "/" + f)):
+                    shutil.rmtree(config.download_dir + "/" + f)
+                else:
+                    os.remove(config.download_dir + "/" + f)
+            continue
+
         if (f in files):
             if (files[f]["state"] == "done"):
-                # TODO: Delete the local files once they're marked done.
-                if (args.verbose): print(f"DELETE: {f}")
+                # remove the file from the dictionary one they're reported 'done'.  Don't physically delete them
+                #   until they've been gone for at least 30 minutes, though.
+                if (args.verbose): print(f"clearing {f}")
+                del files[f]
                 continue
             if (files[f]["state"] == "download"):
                 continue
@@ -86,9 +94,6 @@ while (True):
             files[f]  = {"filename":f, "dir":config.download_dir, "size":size, "md5":md5, "mtime":mtime, "state":"unknown"}
 
     for f in files:
-        # TODO: the upload and download scripts block while running rsync, so this script just pumps out command after 
-        #   command -- causing the other  scripts to eventually execute a shitload of redundant rsync commands.  It 
-        # still "works", but it's shit
         if (files[f]["state"] == "upload"):
             if (args.verbose): print(f"uploading {files[f]}")
             channel.basic_publish(exchange='synkler', routing_key='upload', body=pickle.dumps(files[f], protocol=4))
