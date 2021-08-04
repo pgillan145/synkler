@@ -52,6 +52,7 @@ while True:
                     files[f]["mtime"] = mtime
         time.sleep(1)
 
+    
     #if (args.verbose): print("checking for synkler commands")
     method, properies, body = channel.basic_get( queue_name, True)
     while body != None:
@@ -64,12 +65,16 @@ while True:
         if (f not in files):
             if (args.verbose): print(f"new file:{f}")
             files[f]  = {"filename":f, "size":0, "md5":None, "mtime":0, "dir":config.download_dir, "state":"download"}
-        elif (files[f]["size"] != size or  md5 != files[f]["md5"] or files[f]["mtime"] != mtime):
+        elif (files[f]["size"] != size or md5 != files[f]["md5"] or files[f]["mtime"] != mtime):
             rsync_command = [rsync, "--archive", "--partial", synkler_server + ":\"" + dl_dir + "/" + f + "\"", download_dir + "/"]
             if (args.verbose): print(' '.join(rsync_command))
-
             return_code = subprocess.call(rsync_command)
-            if (args.verbose): print("Output: ", return_code)
+            if (return_code == 0):
+                files[f]["size"] = minorimpact.dirsize(config.download_dir + "/" + f)
+                files[f]["mtime"] = os.path.getmtime(config.download_dir + "/" + f)
+                files[f]["md5"] = minorimpact.md5dir(config.download_dir + "/" + f)
+            
+            #if (args.verbose): print("Output: ", return_code)
         else:
             if (args.verbose): print(f"{f} done")
             files[f]["state"] = "done"
