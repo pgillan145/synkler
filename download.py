@@ -76,8 +76,9 @@ while True:
             
             #if (args.verbose): print("Output: ", return_code)
         else:
-            if (args.verbose): print(f"{f} done")
-            files[f]["state"] = "done"
+            if (files[f]["state"] != "done"):
+                if (args.verbose): print(f"{f} done")
+                files[f]["state"] = "done"
         # get the next file from the queue
         method, properies, body = channel.basic_get( queue_name, True)
 
