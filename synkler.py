@@ -30,7 +30,7 @@ channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='done')
 
 files = {}
 while (True):
-    if (args.verbose): print("checking for new files")
+    #if (args.verbose): print("checking for new files")
     method, properties, body = channel.basic_get( queue=queue_name, auto_ack=True)
     while body != None:
         routing_key = method.routing_key
@@ -38,17 +38,17 @@ while (True):
         f = file_data["filename"]
         if (routing_key == "new"):
             if (f not in files):
-                if (args.verbose): print(f"found {f}")
+                if (args.verbose): print(f"receiving {f}")
                 files[f] = {"filename":f, "dir":config.download_dir, "size":0, "mtime":None, "md5":None, "state":"upload"}
             elif (files[f]["size"] == file_data["size"] and files[f]["mtime"] == file_data["mtime"] and files[f]["md5"] == file_data["md5"]):
-                if (args.verbose): print(f"setting {f} state to 'download'")
+                if (args.verbose): print(f"supplying {f}")
                 files[f]["state"] = "download"
         elif (routing_key == "done"):
             # TODO: compare the specs (md5, etc) and make sure the new file matches the local file.
             # TODO: file is done, like, delete it, or whatever.
             if (f in files):
-                if (args.verbose): print(f"setting {f} state to 'done'")
                 files[f]["state"] = "done"
+                if (args.verbose): print(f"{f} done")
         method, properties, body = channel.basic_get( queue=queue_name, auto_ack=True)
 
     for f in os.listdir(config.download_dir):
@@ -81,9 +81,9 @@ while (True):
             if (size == files[f]["size"] and files[f]["mtime"] == mtime):
                 # The file has stopped changing, we can assume it's no longer being written to -- grab the md5sum.
                 if (files[f]["md5"] == None):
-                    if (args.verbose): print(f"generating md5 for {f}")
                     md5 = minorimpact.md5dir(config.download_dir + "/" + f)
                     files[f]["md5"] = md5
+                    if (args.verbose): print(f"{f} md5:{md5}")
             else:
                 files[f]["size"] = size
                 files[f]["mtime"] = mtime
@@ -95,13 +95,13 @@ while (True):
 
     for f in files:
         if (files[f]["state"] == "upload"):
-            if (args.verbose): print(f"uploading {files[f]}")
+            #if (args.verbose): print(f"retrieving {files[f]}")
             channel.basic_publish(exchange='synkler', routing_key='upload', body=pickle.dumps(files[f], protocol=4))
         elif (files[f]["state"] == "download"):
-            if (args.verbose): print(f"downloading {files[f]}")
+            #if (args.verbose): print(f"sending {files[f]}")
             channel.basic_publish(exchange='synkler', routing_key='download', body=pickle.dumps(files[f], protocol=4))
 
-    if (args.verbose): print("\n")
+    #if (args.verbose): print("\n")
     time.sleep(5)
 
 
