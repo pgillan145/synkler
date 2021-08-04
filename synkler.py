@@ -41,14 +41,16 @@ while (True):
                 if (args.verbose): print(f"receiving {f}")
                 files[f] = {"filename":f, "dir":config.download_dir, "size":0, "mtime":None, "md5":None, "state":"upload"}
             elif (files[f]["size"] == file_data["size"] and files[f]["mtime"] == file_data["mtime"] and files[f]["md5"] == file_data["md5"]):
-                if (args.verbose): print(f"supplying {f}")
-                files[f]["state"] = "download"
+                if (files[f]["state"] != "download"):
+                    if (args.verbose): print(f"supplying {f}")
+                    files[f]["state"] = "download"
         elif (routing_key == "done"):
             # TODO: compare the specs (md5, etc) and make sure the new file matches the local file.
             # TODO: file is done, like, delete it, or whatever.
             if (f in files):
-                files[f]["state"] = "done"
-                if (args.verbose): print(f"{f} done")
+                if (files[f]["state"] != "done"):
+                    if (args.verbose): print(f"{f} done")
+                    files[f]["state"] = "done"
         method, properties, body = channel.basic_get( queue=queue_name, auto_ack=True)
 
     for f in os.listdir(config.download_dir):
