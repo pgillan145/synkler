@@ -31,42 +31,38 @@ channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='done')
 channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='upload')
 
 files = {}
+uploads = {}
 
 while True:
 # collect all the files that need to be uploaded
     #if (args.verbose): print(f"checking {upload_dir}")
-    churn = True
-    while churn:
-        churn = False
-        for f in os.listdir(upload_dir):
-            if (re.search("^\.", f)):
-                continue
-            size = minorimpact.dirsize(upload_dir + "/" + f)
-            mtime = os.path.getmtime(upload_dir + "/" + f) 
-            if f in files:
-                if files[f]['state'] == 'new':
-                    if mtime == files[f]['mtime'] and size == files[f]['size']:
-                        # Don't md5 the file until we know the file has stopped being written to, just in case
-                        if files[f]['md5'] is None:
-                            md5 = minorimpact.md5dir(upload_dir + "/" + f)
-                            files[f]['md5'] = md5
-                            if (args.verbose): print(f"{f} md5:{md5}")
-                    else:
-                        #if (args.verbose): print(f"mtime({mtime}) and size({size}) aren't settled for {f}({files[f]['mtime']},{files[f]['size']})")
-                        files[f]['mtime'] = mtime
-                        files[f]['size'] = size
-                        churn = True
-            else:
-                # TODO: Apparently the server is going to have to tell us what pickle protocols it knows.  This machine supports '5',
-                #   but the server only supports '4'...
-                if (args.verbose): print(f"found {f}")
-                files[f] = {'filename':f, 'pickle_protocol':4, 'mtime':mtime, 'size':size, 'state':'new', 'md5':None, "dir":upload_dir}
-                churn = True
-        time.sleep(1)
+    for f in os.listdir(upload_dir):
+        if (re.search("^\.", f)):
+            continue
+        size = minorimpact.dirsize(upload_dir + "/" + f)
+        mtime = os.path.getmtime(upload_dir + "/" + f) 
+        if f in files:
+            if files[f]['state'] == 'churn':
+                if mtime == files[f]['mtime'] and size == files[f]['size']:
+                    # Don't md5 the file until we know the file has stopped being written to, just in case
+                    if files[f]['md5'] is None:
+                        md5 = minorimpact.md5dir(upload_dir + "/" + f)
+                        files[f]['md5'] = md5
+                        if (args.verbose): print(f"{f} md5:{md5}")
+                        files[f]["state"] = "new"
+                else:
+                    #if (args.verbose): print(f"mtime({mtime}) and size({size}) aren't settled for {f}({files[f]['mtime']},{files[f]['size']})")
+                    files[f]['mtime'] = mtime
+                    files[f]['size'] = size
+        else:
+            # TODO: Apparently the server is going to have to tell us what pickle protocols it knows.  This machine supports '5',
+            #   but the server only supports '4'...
+            if (args.verbose): print(f"found {f}")
+            files[f] = {'filename':f, 'pickle_protocol':4, 'mtime':mtime, 'size':size, 'state':'churn', 'md5':None, "dir":upload_dir}
 
     for f in files:
-        if (files[f]["state"] == "new"):
-            channel.basic_publish(exchange='synkler', routing_key=files[f]['state'], body=pickle.dumps(files[f]))
+        if (files[f]["state"] not in ["churn", "done"]):
+            channel.basic_publish(exchange='synkler', routing_key="new", body=pickle.dumps(files[f]))
 
     # Pull the list of files on the middle upload server
     #if (args.verbose): print("checking for synkler commands")
@@ -80,7 +76,7 @@ while True:
             size = file_data['size']
             mtime = file_data['mtime']
             if (routing_key == "done"):
-                if (files[f]["state"] == "new"):
+                if (files[f]["state"] != "done"):
                     if files[f]['md5'] == md5 and files[f]['size'] == size and files[f]["mtime"] == mtime:
                         if (args.verbose): print(f"{f} done")
                         files[f]["state"] = "done"
@@ -91,16 +87,21 @@ while True:
                                     command[i] = f
                             if (args.verbose): print(' '.join(command))
                             return_code = subprocess.call(command)
-                            #if (args.verbose): print("Output: ", return_code)
+                            if (return_code != 0):
+                                if (args.verbose): print("Output: ", return_code)
+                            else:
+                                del files[f]
+                                del uploads[f]
                     else:
                         # TODO: start including the hostname in file_data so I know what server is actuall sending these messages.
                         if (args.verbose): print(f"ERROR: {f} on final destination doesn't match")
                         # TODO: definitely need to figure out a good way to restart the process to try and eliminate errors.  Setting 
                         #   it back to 'new' might do it, but the problem is that the end server doesn't know it's got a bad copy,
                         #   and if rsync bunged up someone along the way, i don't know why it wouldn't keep doing so...
-                        files[f]["state"] = "error"
+                        files[f]["state"] = "new"
+                        del uploads[f]
             elif (routing_key == "upload"):
-                if (files[f]["state"] == "new"):
+                if (files[f]["state"] == "new" and (f not in uploads or (time.time() - uploads[f] > 60))):
                     dest_dir = None
                     if ("dest_dir" in file_data):
                         dest_dir = file_data['dest_dir']
@@ -112,18 +113,15 @@ while True:
                         rsync_command = [rsync, "--archive", "--partial", upload_dir + "/" + f, config.synkler_server + ":" + dest_dir + "/"]
                         if (args.verbose): print(' '.join(rsync_command))
                         return_code = subprocess.call(rsync_command)
-                        #if (args.verbose): print("Output: ", return_code)
                         if (return_code == 0):
-                            files[f]["size"] = minorimpact.dirsize(upload_dir + "/" + f)
-                            files[f]["mtime"] = os.path.getmtime(upload_dir + "/" + f)
-                            files[f]["md5"] = minorimpact.md5dir(upload_dir + "/" + f)
+                            uploads[f] = time.time()
+                        if (args.verbose): print("Output: ", return_code)
 
         # get the next file from the queue
         method,properties,body = channel.basic_get( queue_name, True)
 
     #if (args.verbose): print("\n")
     time.sleep(5)
-
 
 # close the connection
 connection.close()
