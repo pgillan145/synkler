@@ -65,7 +65,8 @@ while True:
         if (f not in files):
             if (args.verbose): print(f"new file:{f}")
             files[f]  = {"filename":f, "size":0, "md5":None, "mtime":0, "dir":config.download_dir, "state":"download"}
-        elif (files[f]["size"] != size or md5 != files[f]["md5"] or files[f]["mtime"] != mtime):
+
+        if (files[f]["size"] != size or md5 != files[f]["md5"] or files[f]["mtime"] != mtime):
             rsync_command = [rsync, "--archive", "--partial", synkler_server + ":\"" + dl_dir + "/" + f + "\"", download_dir + "/"]
             if (args.verbose): print(' '.join(rsync_command))
             return_code = subprocess.call(rsync_command)
@@ -73,26 +74,21 @@ while True:
                 files[f]["size"] = minorimpact.dirsize(config.download_dir + "/" + f)
                 files[f]["mtime"] = os.path.getmtime(config.download_dir + "/" + f)
                 files[f]["md5"] = minorimpact.md5dir(config.download_dir + "/" + f)
-            
-            #if (args.verbose): print("Output: ", return_code)
+            elif (args.verbose): print("Output: ", return_code)
         else:
             if (files[f]["state"] != "done"):
-                if (args.verbose): print(f"{f} done")
                 files[f]["state"] = "done"
+                
         # get the next file from the queue
         method, properies, body = channel.basic_get( queue_name, True)
 
-    #if (args.verbose): print("reporting download status to synkler")
-    for f in files:
+    filenames = [key for key in files]
+    for f in filenames:
         if (files[f]["state"] == "done"):
-            #if (args.verbose): print(f"{f} done")
+            if (args.verbose): print(f"{f} done")
             channel.basic_publish(exchange='synkler', routing_key='done', body=pickle.dumps(files[f]))
+            del files[f]
     #if (args.verbose): print("\n")
-
-    # TODO: Figure out how to clear a file out of the list once it's finished and removed
-    #   from them upload server.  I can use 'mtime' remove anything that hasn't been updated in like half an hour,,
-    #    but I have to convert the filenames into an array and then delete it that way -- otherwise I get the stupid
-    #   "dictionary has changed" error.  It's not hard, I'm just tired.
 
     time.sleep(5)
 
