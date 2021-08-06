@@ -38,12 +38,15 @@ while (True):
         f = file_data["filename"]
         if (routing_key == "new"):
             if (f not in files):
+                # TODO: Don't just blindly upload everything, set the state to "new" then verify that we've got space for it
+                #   before setting the state to "upload".
                 if (args.verbose): print(f"receiving {f}")
-                files[f] = {"filename":f, "dir":config.download_dir, "size":0, "mtime":None, "md5":None, "state":"upload"}
+                files[f] = {"filename":f, "dir":config.download_dir, "size":0, "mtime":None, "md5":None, "state":"upload", "moddate":int(time.time())}
             elif (files[f]["size"] == file_data["size"] and files[f]["mtime"] == file_data["mtime"] and files[f]["md5"] == file_data["md5"]):
-                if (files[f]["state"] != "download"):
+                if (files[f]["state"] == "upload"):
                     if (args.verbose): print(f"supplying {f}")
                     files[f]["state"] = "download"
+                    files[f]["moddate"] = int(time.time())
         elif (routing_key == "done"):
             # TODO: compare the specs (md5, etc) and make sure the new file matches the local file.
             # TODO: file is done, like, delete it, or whatever.
@@ -51,6 +54,7 @@ while (True):
                 if (files[f]["state"] != "done"):
                     if (args.verbose): print(f"{f} done")
                     files[f]["state"] = "done"
+                    files[f]["moddate"] = int(time.time())
         method, properties, body = channel.basic_get( queue=queue_name, auto_ack=True)
 
     for f in os.listdir(config.download_dir):
@@ -71,36 +75,27 @@ while (True):
             continue
 
         if (f in files):
-            if (files[f]["state"] == "done"):
-                # remove the file from the dictionary one they're reported 'done'.  Don't physically delete them
-                #   until they've been gone for at least 30 minutes, though.
-                if (args.verbose): print(f"clearing {f}")
-                del files[f]
-                continue
-            if (files[f]["state"] == "download"):
-                continue
+            if (files[f]["state"] == "upload"):
+                if (size == files[f]["size"] and files[f]["mtime"] == mtime):
+                    # The file has stopped changing, we can assume it's no longer being written to -- grab the md5sum.
+                    if (files[f]["md5"] == None):
+                        md5 = minorimpact.md5dir(config.download_dir + "/" + f)
+                        files[f]["md5"] = md5
+                        files[f]["moddate"] = int(time.time())
+                        if (args.verbose): print(f"{f} md5:{md5}")
+                else:
+                    files[f]["size"] = size
+                    files[f]["mtime"] = mtime
+                    files[f]["moddate"] = time.time()
 
-            if (size == files[f]["size"] and files[f]["mtime"] == mtime):
-                # The file has stopped changing, we can assume it's no longer being written to -- grab the md5sum.
-                if (files[f]["md5"] == None):
-                    md5 = minorimpact.md5dir(config.download_dir + "/" + f)
-                    files[f]["md5"] = md5
-                    if (args.verbose): print(f"{f} md5:{md5}")
-            else:
-                files[f]["size"] = size
-                files[f]["mtime"] = mtime
-        else:
-            # Not actually sure what to do with files that exist here but are not coming at us from the upload
-            #   server.  Delete them? download them just to be on the safe side?
-            md5 = minorimpact.md5dir(config.download_dir + "/" + f)
-            files[f]  = {"filename":f, "dir":config.download_dir, "size":size, "md5":md5, "mtime":mtime, "state":"unknown"}
-
-    for f in files:
-        if (files[f]["state"] == "upload"):
-            #if (args.verbose): print(f"retrieving {files[f]}")
+    filenames = [key for key in files]
+    for f in filenames:
+        if (files[f]["state"] == "done" and (int(time.time()) - files[f]["moddate"] > 60)):
+            if (args.verbose): print(f"clearing {f}")
+            del files[f]
+        elif (files[f]["state"] == "upload"):
             channel.basic_publish(exchange='synkler', routing_key='upload', body=pickle.dumps(files[f], protocol=4))
         elif (files[f]["state"] == "download"):
-            #if (args.verbose): print(f"sending {files[f]}")
             channel.basic_publish(exchange='synkler', routing_key='download', body=pickle.dumps(files[f], protocol=4))
 
     #if (args.verbose): print("\n")
