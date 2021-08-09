@@ -14,9 +14,9 @@ import shutil
 import time
 
 parser = argparse.ArgumentParser(description="Synkler middle manager")
-#parser.add_argument('filename', nargs="?")
-parser.add_argument('--verbose', help = "extra loud output", action='store_true')
-#parser.add_argument('--logging', help = "turn on logging", action='store_true')
+parser.add_argument('-v', '--verbose', help = "extra loud output", action='store_true')
+parser.add_argument('--id', nargs='?', help = "id of a specific synkler group", default="default")
+
 args = parser.parse_args()
 
 connection = pika.BlockingConnection(pika.ConnectionParameters(host=config.synkler_server))
@@ -25,8 +25,8 @@ channel = connection.channel()
 channel.exchange_declare(exchange='synkler', exchange_type='topic')
 result = channel.queue_declare(queue='', exclusive=True)
 queue_name = result.method.queue
-channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='new')
-channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='done')
+channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='new.' + args.id)
+channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='done.' + args.id)
 
 files = {}
 while (True):
@@ -36,7 +36,7 @@ while (True):
         routing_key = method.routing_key
         file_data = pickle.loads(body)
         f = file_data["filename"]
-        if (routing_key == "new"):
+        if (re.match("new", routing_key)):
             if (f not in files):
                 # TODO: Don't just blindly upload everything, set the state to "new" then verify that we've got space for it
                 #   before setting the state to "upload".
@@ -47,9 +47,7 @@ while (True):
                     if (args.verbose): print(f"supplying {f}")
                     files[f]["state"] = "download"
                     files[f]["moddate"] = int(time.time())
-        elif (routing_key == "done"):
-            # TODO: compare the specs (md5, etc) and make sure the new file matches the local file.
-            # TODO: file is done, like, delete it, or whatever.
+        elif (re.match("done", routing_key)):
             if (f in files):
                 if (files[f]["state"] != "done"):
                     if (args.verbose): print(f"{f} done")
@@ -94,9 +92,9 @@ while (True):
             if (args.verbose): print(f"clearing {f}")
             del files[f]
         elif (files[f]["state"] == "upload"):
-            channel.basic_publish(exchange='synkler', routing_key='upload', body=pickle.dumps(files[f], protocol=4))
+            channel.basic_publish(exchange='synkler', routing_key='upload.' + args.id, body=pickle.dumps(files[f], protocol=4))
         elif (files[f]["state"] == "download"):
-            channel.basic_publish(exchange='synkler', routing_key='download', body=pickle.dumps(files[f], protocol=4))
+            channel.basic_publish(exchange='synkler', routing_key='download.' + args.id, body=pickle.dumps(files[f], protocol=4))
 
     #if (args.verbose): print("\n")
     time.sleep(5)
