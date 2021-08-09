@@ -17,7 +17,8 @@ rsync = config.rsync
 
 # TODO: Add an ID argument so different multiple synkler sets can be run simultaneously
 parser = argparse.ArgumentParser(description="Monitor directory and initiate synkler transfers")
-parser.add_argument('--verbose', help = "extra loud output", action='store_true')
+parser.add_argument('-v', '--verbose', help = "extra loud output", action='store_true')
+parser.add_argument('--id', nargs='?', help = "id of a specific synkler group", default="default")
 args = parser.parse_args()
 
 connection = pika.BlockingConnection(pika.ConnectionParameters(host=config.synkler_server))
@@ -27,8 +28,8 @@ channel = connection.channel()
 channel.exchange_declare(exchange='synkler', exchange_type='topic')
 result = channel.queue_declare(queue='', exclusive=True)
 queue_name = result.method.queue
-channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='done')
-channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='upload')
+channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='done.' + args.id)
+channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='upload.' + args.id)
 
 files = {}
 uploads = {}
@@ -62,7 +63,7 @@ while True:
 
     for f in files:
         if (files[f]["state"] not in ["churn", "done"]):
-            channel.basic_publish(exchange='synkler', routing_key="new", body=pickle.dumps(files[f]))
+            channel.basic_publish(exchange='synkler', routing_key="new." + args.id, body=pickle.dumps(files[f]))
 
     # Pull the list of files on the middle upload server
     #if (args.verbose): print("checking for synkler commands")
@@ -75,7 +76,7 @@ while True:
             md5 = file_data['md5']
             size = file_data['size']
             mtime = file_data['mtime']
-            if (routing_key == "done"):
+            if (re.match("done", routing_key)):
                 if (files[f]["state"] != "done"):
                     if files[f]['md5'] == md5 and files[f]['size'] == size and files[f]["mtime"] == mtime:
                         if (args.verbose): print(f"{f} done")
@@ -100,7 +101,7 @@ while True:
                         #   and if rsync bunged up someone along the way, i don't know why it wouldn't keep doing so...
                         files[f]["state"] = "new"
                         del uploads[f]
-            elif (routing_key == "upload"):
+            elif (re.match("upload", routing_key)):
                 if (files[f]["state"] == "new" and (f not in uploads or (time.time() - uploads[f] > 60))):
                     dest_dir = None
                     if ("dest_dir" in file_data):
