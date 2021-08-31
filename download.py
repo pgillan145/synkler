@@ -21,6 +21,9 @@ parser.add_argument('-v', '--verbose', help = "extra loud output", action='store
 parser.add_argument('--id', nargs='?', help = "id of a specific synkler group", default="default")
 args = parser.parse_args()
 
+pidfile = config.pidfile if hasattr(config, 'pidfile') and config.pidfile is not None else "/tmp/synkler.pid"
+minorimpact.checkforduplicates(pidfile)
+
 connection = pika.BlockingConnection(pika.ConnectionParameters(host=synkler_server))
 channel = connection.channel()
 
@@ -33,28 +36,26 @@ channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='download.'
 files = {}
 while True:
     #if (args.verbose): print(f"checking {download_dir}")
-    churn = True
-    while churn:
-        churn = False
-        for f in os.listdir(download_dir):
-            if (re.search("^\.", f)):
-                continue
-            size = minorimpact.dirsize(config.file_dir + "/" + f)
-            mtime = os.path.getmtime(config.file_dir + "/" + f)
-            if (f in files):
-                if (size == files[f]["size"] and files[f]["mtime"] == mtime):
-                    if (files[f]["md5"] is None):
-                        md5 = minorimpact.md5dir(config.file_dir + "/" + f)
-                        files[f]["md5"] = md5
-                        if (args.verbose): print(f"{f} md5:{md5}")
-                else:
-                    churn = True
-                    files[f]["size"] = size
-                    files[f]["mtime"] = mtime
-        time.sleep(1)
+    for f in os.listdir(download_dir):
+        if (re.search("^\.", f)):
+            continue
+        size = minorimpact.dirsize(config.file_dir + "/" + f)
+        mtime = os.path.getmtime(config.file_dir + "/" + f)
+        if (f in files):
+            if (size == files[f]["size"] and files[f]["mtime"] == mtime):
+                if (files[f]["md5"] is None):
+                    md5 = minorimpact.md5dir(config.file_dir + "/" + f)
+                    files[f]["md5"] = md5
+                    if (args.verbose): print(f"{f} md5:{md5}")
+            else:
+                files[f]["size"] = size
+                files[f]["mtime"] = mtime
 
     
     #if (args.verbose): print("checking for synkler commands")
+    # Just do one download per loop, so the rest of the messages don't pile up, and we can report
+    #   files as done right away.
+    download = False
     method, properies, body = channel.basic_get( queue_name, True)
     while body != None:
         file_data = pickle.loads(body)
@@ -68,14 +69,16 @@ while True:
             files[f]  = {"filename":f, "size":0, "md5":None, "mtime":0, "dir":config.file_dir, "state":"download"}
 
         if (files[f]["size"] != size or md5 != files[f]["md5"] or files[f]["mtime"] != mtime):
-            rsync_command = [rsync, "--archive", "--partial", synkler_server + ":\"" + dl_dir + "/" + f + "\"", download_dir + "/"]
-            if (args.verbose): print(' '.join(rsync_command))
-            return_code = subprocess.call(rsync_command)
-            if (return_code == 0):
-                files[f]["size"] = minorimpact.dirsize(config.file_dir + "/" + f)
-                files[f]["mtime"] = os.path.getmtime(config.file_dir + "/" + f)
-                files[f]["md5"] = minorimpact.md5dir(config.file_dir + "/" + f)
-            elif (args.verbose): print("Output: ", return_code)
+            if (download is False):
+                download = True
+                rsync_command = [rsync, "--archive", "--partial", synkler_server + ":\"" + dl_dir + "/" + f + "\"", download_dir + "/"]
+                if (args.verbose): print(' '.join(rsync_command))
+                return_code = subprocess.call(rsync_command)
+                if (return_code == 0):
+                    files[f]["size"] = minorimpact.dirsize(config.file_dir + "/" + f)
+                    files[f]["mtime"] = os.path.getmtime(config.file_dir + "/" + f)
+                    files[f]["md5"] = minorimpact.md5dir(config.file_dir + "/" + f)
+                elif (args.verbose): print("Output: ", return_code)
         else:
             if (files[f]["state"] != "done"):
                 files[f]["state"] = "done"
