@@ -10,10 +10,14 @@ import pickle
 import pika
 import re
 import subprocess
+import sys
 import time
 
 upload_dir = config.file_dir
 rsync = config.rsync
+pidfile = config.pidfile if hasattr(config, 'pidfile') and config.pidfile is not None else "/tmp/synkler.pid"
+
+minorimpact.checkforduplicates(pidfile)
 
 parser = argparse.ArgumentParser(description="Monitor directory and initiate synkler transfers")
 parser.add_argument('-v', '--verbose', help = "extra loud output", action='store_true')
@@ -129,4 +133,6 @@ while True:
 
 # close the connection
 connection.close()
+
+os.remove(pidfile)
 
