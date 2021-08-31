@@ -15,7 +15,6 @@ import time
 upload_dir = config.file_dir
 rsync = config.rsync
 
-# TODO: Add an ID argument so different multiple synkler sets can be run simultaneously
 parser = argparse.ArgumentParser(description="Monitor directory and initiate synkler transfers")
 parser.add_argument('-v', '--verbose', help = "extra loud output", action='store_true')
 parser.add_argument('--id', nargs='?', help = "id of a specific synkler group", default="default")
@@ -67,6 +66,7 @@ while True:
 
     # Pull the list of files on the middle upload server
     #if (args.verbose): print("checking for synkler commands")
+    upload = False
     method,properties,body = channel.basic_get( queue_name, True)
     while body != None:
         routing_key = method.routing_key
@@ -91,8 +91,8 @@ while True:
                             if (return_code != 0):
                                 if (args.verbose): print("Output: ", return_code)
                             else:
-                                del files[f]
-                                del uploads[f]
+                                if f in files: del files[f]
+                                if f in uploads: del uploads[f]
                     else:
                         # TODO: start including the hostname in file_data so I know what server is actuall sending these messages.
                         if (args.verbose): print(f"ERROR: {f} on final destination doesn't match")
@@ -100,8 +100,10 @@ while True:
                         #   it back to 'new' might do it, but the problem is that the end server doesn't know it's got a bad copy,
                         #   and if rsync bunged up someone along the way, i don't know why it wouldn't keep doing so...
                         files[f]["state"] = "new"
-                        del uploads[f]
-            elif (re.match("upload", routing_key)):
+                        if f in uploads: del uploads[f]
+            elif (re.match("upload", routing_key) and upload is False):
+                # I don't want to do more than one upload per loop.  The other servers just keep pumping out signals, I don't want to
+                #   too many of them bunching up.  And if things are done, I want them taken care of as soon as possible.
                 if (files[f]["state"] == "new" and (f not in uploads or (time.time() - uploads[f] > 60))):
                     dest_dir = None
                     if ("dest_dir" in file_data):
@@ -111,6 +113,7 @@ while True:
 
                     if dest_dir is not None and (files[f]['md5'] != md5 or files[f]['size'] != size or files[f]["mtime"] != mtime):
                         #if (args.verbose): print("  uploading " + f)
+                        upload = True
                         rsync_command = [rsync, "--archive", "--partial", upload_dir + "/" + f, config.synkler_server + ":" + dest_dir + "/"]
                         if (args.verbose): print(' '.join(rsync_command))
                         return_code = subprocess.call(rsync_command)
@@ -126,6 +129,4 @@ while True:
 
 # close the connection
 connection.close()
-
-
 
