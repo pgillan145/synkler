@@ -21,7 +21,10 @@ def main():
     args = parser.parse_args()
 
     pidfile = config.pidfile if hasattr(config, 'pidfile') and config.pidfile is not None else "/tmp/synkler.pid"
-    minorimpact.checkforduplicates(pidfile)
+    if (minorimpact.checkforduplicates(pidfile)):
+        if (args.verbose): sys.exit('already running')
+        else: sys.exit()
+
 
     connection = pika.BlockingConnection(pika.ConnectionParameters(host=config.synkler_server))
     channel = connection.channel()

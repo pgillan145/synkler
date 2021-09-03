@@ -17,7 +17,10 @@ upload_dir = config.file_dir
 rsync = config.rsync
 pidfile = config.pidfile if hasattr(config, 'pidfile') and config.pidfile is not None else "/tmp/synkler.pid"
 
-minorimpact.checkforduplicates(pidfile)
+if (minorimpact.checkforduplicates(pidfile)):
+    if (args.verbose): sys.exit('already running')
+    else: sys.exit()
+
 
 parser = argparse.ArgumentParser(description="Monitor directory and initiate synkler transfers")
 parser.add_argument('-v', '--verbose', help = "extra loud output", action='store_true')
