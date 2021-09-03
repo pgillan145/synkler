@@ -10,6 +10,7 @@ import pickle
 import pika
 import re
 import subprocess
+import sys
 import time
 
 download_dir = config.file_dir

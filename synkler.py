@@ -11,6 +11,7 @@ import pickle
 import pika
 import re
 import shutil
+import sys
 import time
 
 def main():
