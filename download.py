@@ -16,6 +16,7 @@ import time
 download_dir = config.file_dir
 synkler_server = config.synkler_server
 rsync = config.rsync
+rsync_opts = config.rsync_opts if hasattr(config, 'rsync_opts') else []
 
 parser = argparse.ArgumentParser(description="Synkler download script")
 parser.add_argument('-v', '--verbose', help = "extra loud output", action='store_true')
@@ -79,7 +80,7 @@ while True:
                 # TODO: really large files break this whole thing because in the time it takes to upload we lose connection to the rabbitmq server. We either need
                 #   to detect the disconnect and reconnect, or, better yet, spawn a separate thread to handle the rsync and wait until it completes before starting
                 #   the next one.
-                rsync_command = [rsync, "--archive", "--partial", synkler_server + ":\"" + dl_dir + "/" + f + "\"", download_dir + "/"]
+                rsync_command = [rsync, "--archive", "--partial", , *rsync_opts, synkler_server + ":\"" + dl_dir + "/" + f + "\"", download_dir + "/"]
                 if (args.verbose): minorimpact.fprint(' '.join(rsync_command))
                 return_code = subprocess.call(rsync_command)
                 if (return_code == 0):
