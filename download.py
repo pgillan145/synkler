@@ -24,7 +24,9 @@ args = parser.parse_args()
 
 pidfile = config.pidfile if hasattr(config, 'pidfile') and config.pidfile is not None else "/tmp/synkler.pid"
 if (minorimpact.checkforduplicates(pidfile)):
-    if (args.verbose): sys.exit('already running')
+    # TODO: if we run it from the command like, we want some indicator as to why it didn't run, but as a cron
+    #   it fills up the log.
+    if (args.verbose): sys.exit() #sys.exit('already running')
     else: sys.exit()
 
 connection = pika.BlockingConnection(pika.ConnectionParameters(host=synkler_server))
@@ -38,7 +40,7 @@ channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='download.'
 
 files = {}
 while True:
-    #if (args.verbose): print(f"checking {download_dir}")
+    #if (args.verbose): minorimpact.fprint(f"checking {download_dir}")
     for f in os.listdir(download_dir):
         if (re.search("^\.", f)):
             continue
@@ -49,13 +51,13 @@ while True:
                 if (files[f]["md5"] is None):
                     md5 = minorimpact.md5dir(config.file_dir + "/" + f)
                     files[f]["md5"] = md5
-                    if (args.verbose): print(f"{f} md5:{md5}")
+                    if (args.verbose): minorimpact.fprint(f"{f} md5:{md5}")
             else:
                 files[f]["size"] = size
                 files[f]["mtime"] = mtime
 
     
-    #if (args.verbose): print("checking for synkler commands")
+    #if (args.verbose): minorimpact.fprint("checking for synkler commands")
     # Just do one download per loop, so the rest of the messages don't pile up, and we can report
     #   files as done right away.
     download = False
@@ -68,20 +70,23 @@ while True:
         size = file_data["size"]
         mtime = file_data["mtime"]
         if (f not in files):
-            if (args.verbose): print(f"new file:{f}")
+            if (args.verbose): minorimpact.fprint(f"new file:{f}")
             files[f]  = {"filename":f, "size":0, "md5":None, "mtime":0, "dir":config.file_dir, "state":"download"}
 
         if (files[f]["size"] != size or md5 != files[f]["md5"] or files[f]["mtime"] != mtime):
             if (download is False):
                 download = True
+                # TODO: really large files break this whole thing because in the time it takes to upload we lose connection to the rabbitmq server. We either need
+                #   to detect the disconnect and reconnect, or, better yet, spawn a separate thread to handle the rsync and wait until it completes before starting
+                #   the next one.
                 rsync_command = [rsync, "--archive", "--partial", synkler_server + ":\"" + dl_dir + "/" + f + "\"", download_dir + "/"]
-                if (args.verbose): print(' '.join(rsync_command))
+                if (args.verbose): minorimpact.fprint(' '.join(rsync_command))
                 return_code = subprocess.call(rsync_command)
                 if (return_code == 0):
                     files[f]["size"] = minorimpact.dirsize(config.file_dir + "/" + f)
                     files[f]["mtime"] = os.path.getmtime(config.file_dir + "/" + f)
                     files[f]["md5"] = minorimpact.md5dir(config.file_dir + "/" + f)
-                elif (args.verbose): print("Output: ", return_code)
+                elif (args.verbose): minorimpact.fprint("Output: ", return_code)
         else:
             if (files[f]["state"] != "done"):
                 files[f]["state"] = "done"
@@ -92,10 +97,10 @@ while True:
     filenames = [key for key in files]
     for f in filenames:
         if (files[f]["state"] == "done"):
-            if (args.verbose): print(f"{f} done")
+            if (args.verbose): minorimpact.fprint(f"{f} done")
             channel.basic_publish(exchange='synkler', routing_key='done.' + args.id, body=pickle.dumps(files[f]))
             del files[f]
-    #if (args.verbose): print("\n")
+    #if (args.verbose): minorimpact.fprint("\n")
 
     time.sleep(5)
 
