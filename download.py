@@ -19,9 +19,11 @@ rsync = config.rsync
 rsync_opts = config.rsync_opts if hasattr(config, 'rsync_opts') else []
 
 parser = argparse.ArgumentParser(description="Synkler download script")
+parser.add_argument('-d', '--debug', help = "extra extra loud output", action='store_true')
 parser.add_argument('-v', '--verbose', help = "extra loud output", action='store_true')
 parser.add_argument('--id', nargs='?', help = "id of a specific synkler group", default="default")
 args = parser.parse_args()
+if (args.debug): args.verbose = True
 
 pidfile = config.pidfile if hasattr(config, 'pidfile') and config.pidfile is not None else "/tmp/synkler.pid"
 if (minorimpact.checkforduplicates(pidfile)):
@@ -45,12 +47,12 @@ while True:
     for f in os.listdir(download_dir):
         if (re.search("^\.", f)):
             continue
-        size = minorimpact.dirsize(config.file_dir + "/" + f)
-        mtime = os.path.getmtime(config.file_dir + "/" + f)
+        size = minorimpact.dirsize(download_dir + "/" + f)
+        mtime = os.path.getmtime(download_dir + "/" + f)
         if (f in files):
             if (size == files[f]["size"] and files[f]["mtime"] == mtime):
                 if (files[f]["md5"] is None):
-                    md5 = minorimpact.md5dir(config.file_dir + "/" + f)
+                    md5 = minorimpact.md5dir(download_dir + "/" + f)
                     files[f]["md5"] = md5
                     if (args.verbose): minorimpact.fprint(f"{f} md5:{md5}")
             else:
@@ -70,11 +72,13 @@ while True:
         md5 = file_data['md5']
         size = file_data["size"]
         mtime = file_data["mtime"]
+        if (args.debug): print(f"file {f}: {md5},{size},{mtime}")
         if (f not in files):
             if (args.verbose): minorimpact.fprint(f"new file:{f}")
-            files[f]  = {"filename":f, "size":0, "md5":None, "mtime":0, "dir":config.file_dir, "state":"download"}
+            files[f]  = {"filename":f, "size":0, "md5":None, "mtime":0, "dir":download_dir, "state":"download"}
 
         if (files[f]["size"] != size or md5 != files[f]["md5"] or files[f]["mtime"] != mtime):
+            if (args.debug): print(f"files[{f}]: {files[f]['md5']},{files[f]['size']},{files[f]['mtime']}")
             if (download is False):
                 download = True
                 # TODO: really large files break this whole thing because in the time it takes to upload we lose connection to the rabbitmq server. We either need
@@ -84,13 +88,25 @@ while True:
                 if (args.verbose): minorimpact.fprint(' '.join(rsync_command))
                 return_code = subprocess.call(rsync_command)
                 if (return_code == 0):
-                    files[f]["size"] = minorimpact.dirsize(config.file_dir + "/" + f)
-                    files[f]["mtime"] = os.path.getmtime(config.file_dir + "/" + f)
-                    files[f]["md5"] = minorimpact.md5dir(config.file_dir + "/" + f)
+                    files[f]["size"] = minorimpact.dirsize(download_dir + "/" + f)
+                    files[f]["mtime"] = os.path.getmtime(download_dir + "/" + f)
+                    files[f]["md5"] = minorimpact.md5dir(download_dir + "/" + f)
                 elif (args.verbose): minorimpact.fprint("Output: ", return_code)
         else:
             if (files[f]["state"] != "done"):
+                if (args.debug): print (f"{f}: doing done")
                 files[f]["state"] = "done"
+                if (config.cleanup_script is not None):
+                    if (args.debug): print (f"{f}: doing cleanup")
+                    command = config.cleanup_script.split(" ")
+                    for i in range(len(command)):
+                        if command[i] == "%f":
+                            command[i] = download_dir + "/" + f
+                    if (args.verbose): minorimpact.fprint(' '.join(command))
+                    return_code = subprocess.call(command)
+                    if (return_code != 0):
+                        if (args.verbose): minorimpact.fprint(f"Output: {return_code}")
+
                 
         # get the next file from the queue
         method, properies, body = channel.basic_get( queue_name, True)
