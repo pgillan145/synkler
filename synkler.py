@@ -38,6 +38,7 @@ def main():
 
     channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='new.' + args.id)
     channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='done.' + args.id)
+    start_time = int(time.time())
 
     files = {}
     while (True):
@@ -45,10 +46,9 @@ def main():
             if (re.search("^\.", f)):
                 continue
 
-            size = minorimpact.dirsize(config.download_dir + "/" + f)
             mtime = os.path.getmtime(config.download_dir + "/" + f)
-
             if (f in files):
+                size = minorimpact.dirsize(config.download_dir + "/" + f)
                 if (files[f]["state"] == "upload"):
                     if (size == files[f]["size"] and files[f]["mtime"] == mtime):
                         # The file has stopped changing, we can assume it's no longer being written to -- grab the md5sum.
@@ -64,7 +64,7 @@ def main():
             else:
                 # These files are more than 30 minutes old and haven't been reported in, they can be
                 #   axed.
-                if (int(time.time()) - mtime > 1800):
+                if (int(time.time()) - start_time > 1800 and int(time.time()) - mtime > 1800):
                     if (args.verbose): minorimpact.fprint("deleting " + config.download_dir + "/" + f)
                     if (os.path.isdir(config.download_dir + "/" + f)):
                         shutil.rmtree(config.download_dir + "/" + f)
