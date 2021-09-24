@@ -1,0 +1,12 @@
+
+file_dir = /home/user/temp_downloads
+# rsync command
+rsync = /usr/bin/env rsync
+# Additional options to pass to rsync, if necessary
+rsync_opts = --rsh=/usr/bin/ssh, --times 
+synkler_server = synkler.example.com
+
+# command to run after a complete transfer.
+# options:
+#   %f - filename of the completed file.
+cleanup_script = mv %f /home/user/downloads

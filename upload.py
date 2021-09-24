@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 
 import argparse
-import config
+import csv
 import hashlib
 import minorimpact
+import minorimpact.config
 import os
 import os.path
 import pickle
@@ -14,16 +15,22 @@ import sys
 import time
 
 
-
-upload_dir = config.file_dir
-rsync = config.rsync
-pidfile = config.pidfile if hasattr(config, 'pidfile') and config.pidfile is not None else "/tmp/synkler.pid"
-rsync_opts = config.rsync_opts if hasattr(config, 'rsync_opts') else []
-
 parser = argparse.ArgumentParser(description="Monitor directory and initiate synkler transfers")
+parser.add_argument('-c', '--config', help = "config file to use")
 parser.add_argument('-v', '--verbose', help = "extra loud output", action='store_true')
 parser.add_argument('-i', '--id', nargs='?', help = "id of a specific synkler group", default="default")
 args = parser.parse_args()
+
+config = minorimpact.config.getConfig(config=args.config, script_name='synkler', verbose = args.verbose)
+
+cleanup_script = config['default']['cleanup_script']
+file_dir = config['default']['file_dir']
+pidfile = config['default']['pidfile'] if hasattr(config['default'], 'pidfile') and config['default']['pidfile'] is not None else '/tmp/synkler.pid'
+rsync = config['default']['rsync']
+rsync_opts = config['default']['rsync_opts'] if hasattr(config['default'], 'rsync_opts') else ''
+rsync_opts = list(csv.reader([rsync_opts]))[0]
+synkler_server = config['default']['synkler_server']
+
 
 if (minorimpact.checkforduplicates(pidfile)):
     # TODO: if we run it from the command like, we want some indicator as to why it didn't run, but as a cron
@@ -31,7 +38,7 @@ if (minorimpact.checkforduplicates(pidfile)):
     if (args.verbose): sys.exit() #sys.exit('already running')
     else: sys.exit()
 
-connection = pika.BlockingConnection(pika.ConnectionParameters(host=config.synkler_server))
+connection = pika.BlockingConnection(pika.ConnectionParameters(host=synkler_server))
 channel = connection.channel()
 
 # message queues
@@ -46,17 +53,17 @@ uploads = {}
 
 while True:
     # collect all the files that need to be uploaded
-    for f in os.listdir(upload_dir):
+    for f in os.listdir(file_dir):
         if (re.search("^\.", f)):
             continue
-        size = minorimpact.dirsize(upload_dir + "/" + f)
-        mtime = os.path.getmtime(upload_dir + "/" + f) 
+        size = minorimpact.dirsize(file_dir + "/" + f)
+        mtime = os.path.getmtime(file_dir + "/" + f) 
         if f in files:
             if files[f]['state'] == 'churn':
                 if mtime == files[f]['mtime'] and size == files[f]['size']:
                     # Don't md5 the file until we know the file has stopped being written to, just in case
                     if files[f]['md5'] is None:
-                        md5 = minorimpact.md5dir(upload_dir + "/" + f)
+                        md5 = minorimpact.md5dir(file_dir + "/" + f)
                         files[f]['md5'] = md5
                         if (args.verbose): minorimpact.fprint(f"{f} md5:{md5}")
                         files[f]["state"] = "new"
@@ -67,7 +74,7 @@ while True:
             # TODO: Apparently the server is going to have to tell us what pickle protocols it knows.  This machine supports '5',
             #   but the server only supports '4'...
             if (args.verbose): minorimpact.fprint(f"found {f}")
-            files[f] = {'filename':f, 'pickle_protocol':4, 'mtime':mtime, 'size':size, 'state':'churn', 'md5':None, "dir":upload_dir}
+            files[f] = {'filename':f, 'pickle_protocol':4, 'mtime':mtime, 'size':size, 'state':'churn', 'md5':None, "dir":file_dir}
 
     for f in files:
         if (files[f]["state"] not in ["churn", "done"]):
@@ -90,8 +97,8 @@ while True:
                     if files[f]['md5'] == md5 and files[f]['size'] == size and files[f]["mtime"] == mtime:
                         if (args.verbose): minorimpact.fprint(f"{f} done")
                         files[f]["state"] = "done"
-                        if (config.cleanup_script is not None):
-                            command = config.cleanup_script.split(" ")
+                        if (cleanup_script is not None):
+                            command = cleanup_script.split(" ")
                             for i in range(len(command)):
                                 if command[i] == "%f":
                                     command[i] = f
@@ -125,7 +132,7 @@ while True:
                         # TODO: really large files break this whole thing because in the time it takes to upload we lose connection to the rabbitmq server. We either need
                         #   to detect the disconnect and reconnect, or, better yet, spawn a separate thread to handle the rsync and wait until it completes before starting
                         #   the next one.
-                        rsync_command = [rsync, "--archive", "--partial", *rsync_opts, upload_dir + "/" + f, config.synkler_server + ":" + dest_dir + "/"]
+                        rsync_command = [rsync, "--archive", "--partial", *rsync_opts, file_dir + "/" + f, synkler_server + ":" + dest_dir + "/"]
                         if (args.verbose): minorimpact.fprint(' '.join(rsync_command))
                         return_code = subprocess.call(rsync_command)
                         if (return_code == 0):

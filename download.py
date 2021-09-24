@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 
 import argparse
-import config
+import csv
 import hashlib
 import minorimpact
+import minorimpact.config
 import os
 import os.path
 import pickle
@@ -13,19 +14,25 @@ import subprocess
 import sys
 import time
 
-download_dir = config.file_dir
-synkler_server = config.synkler_server
-rsync = config.rsync
-rsync_opts = config.rsync_opts if hasattr(config, 'rsync_opts') else []
 
 parser = argparse.ArgumentParser(description="Synkler download script")
+parser.add_argument('-c', '--config', help = "config file to use")
 parser.add_argument('-d', '--debug', help = "extra extra loud output", action='store_true')
 parser.add_argument('-v', '--verbose', help = "extra loud output", action='store_true')
 parser.add_argument('--id', nargs='?', help = "id of a specific synkler group", default="default")
 args = parser.parse_args()
 if (args.debug): args.verbose = True
 
-pidfile = config.pidfile if hasattr(config, 'pidfile') and config.pidfile is not None else "/tmp/synkler.pid"
+config = minorimpact.config.getConfig(config=args.config, script_name='synkler', verbose = args.verbose)
+
+cleanup_script = config['default']['cleanup_script']
+file_dir = config['default']['file_dir']
+pidfile = config['default']['pidfile'] if hasattr(config['default'], 'pidfile') and config['default']['pidfile'] is not None else '/tmp/synkler.pid'
+rsync = config['default']['rsync']
+rsync_opts = config['default']['rsync_opts'] if hasattr(config['default'], 'rsync_opts') else ''
+rsync_opts = list(csv.reader([rsync_opts]))[0]
+synkler_server = config['default']['synkler_server']
+
 if (minorimpact.checkforduplicates(pidfile)):
     # TODO: if we run it from the command like, we want some indicator as to why it didn't run, but as a cron
     #   it fills up the log.
@@ -43,16 +50,16 @@ channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='download.'
 
 files = {}
 while True:
-    #if (args.verbose): minorimpact.fprint(f"checking {download_dir}")
-    for f in os.listdir(download_dir):
+    #if (args.verbose): minorimpact.fprint(f"checking {file_dir}")
+    for f in os.listdir(file_dir):
         if (re.search("^\.", f)):
             continue
-        size = minorimpact.dirsize(download_dir + "/" + f)
-        mtime = os.path.getmtime(download_dir + "/" + f)
+        size = minorimpact.dirsize(file_dir + "/" + f)
+        mtime = os.path.getmtime(file_dir + "/" + f)
         if (f in files):
             if (size == files[f]["size"] and files[f]["mtime"] == mtime):
                 if (files[f]["md5"] is None):
-                    md5 = minorimpact.md5dir(download_dir + "/" + f)
+                    md5 = minorimpact.md5dir(file_dir + "/" + f)
                     files[f]["md5"] = md5
                     if (args.verbose): minorimpact.fprint(f"{f} md5:{md5}")
             else:
@@ -75,7 +82,7 @@ while True:
         if (args.debug): print(f"file {f}: {md5},{size},{mtime}")
         if (f not in files):
             if (args.verbose): minorimpact.fprint(f"new file:{f}")
-            files[f]  = {"filename":f, "size":0, "md5":None, "mtime":0, "dir":download_dir, "state":"download"}
+            files[f]  = {"filename":f, "size":0, "md5":None, "mtime":0, "dir":file_dir, "state":"download"}
 
         if (files[f]["size"] != size or md5 != files[f]["md5"] or files[f]["mtime"] != mtime):
             if (args.debug): print(f"files[{f}]: {files[f]['md5']},{files[f]['size']},{files[f]['mtime']}")
@@ -84,24 +91,24 @@ while True:
                 # TODO: really large files break this whole thing because in the time it takes to upload we lose connection to the rabbitmq server. We either need
                 #   to detect the disconnect and reconnect, or, better yet, spawn a separate thread to handle the rsync and wait until it completes before starting
                 #   the next one.
-                rsync_command = [rsync, "--archive", "--partial", *rsync_opts, synkler_server + ":\"" + dl_dir + "/" + f + "\"", download_dir + "/"]
+                rsync_command = [rsync, "--archive", "--partial", *rsync_opts, synkler_server + ":\"" + dl_dir + "/" + f + "\"", file_dir + "/"]
                 if (args.verbose): minorimpact.fprint(' '.join(rsync_command))
                 return_code = subprocess.call(rsync_command)
                 if (return_code == 0):
-                    files[f]["size"] = minorimpact.dirsize(download_dir + "/" + f)
-                    files[f]["mtime"] = os.path.getmtime(download_dir + "/" + f)
-                    files[f]["md5"] = minorimpact.md5dir(download_dir + "/" + f)
+                    files[f]["size"] = minorimpact.dirsize(file_dir + "/" + f)
+                    files[f]["mtime"] = os.path.getmtime(file_dir + "/" + f)
+                    files[f]["md5"] = minorimpact.md5dir(file_dir + "/" + f)
                 elif (args.verbose): minorimpact.fprint("Output: ", return_code)
         else:
             if (files[f]["state"] != "done"):
                 if (args.debug): print (f"{f}: doing done")
                 files[f]["state"] = "done"
-                if (config.cleanup_script is not None):
+                if (cleanup_script is not None):
                     if (args.debug): print (f"{f}: doing cleanup")
-                    command = config.cleanup_script.split(" ")
+                    command = cleanup_script.split(" ")
                     for i in range(len(command)):
                         if command[i] == "%f":
-                            command[i] = download_dir + "/" + f
+                            command[i] = file_dir + "/" + f
                     if (args.verbose): minorimpact.fprint(' '.join(command))
                     return_code = subprocess.call(command)
                     if (return_code != 0):
