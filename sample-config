@@ -1,12 +1,27 @@
 
+[default]
+# Directory where the files live.
 file_dir = /home/user/temp_downloads
+
+# How long to keep a file on the central server after the transfer is complete, in minutes.
+keep_minutes = 30
+
+# 'upload', 'central', or 'download'
+mode = central
+
 # rsync command
 rsync = /usr/bin/env rsync
-# Additional options to pass to rsync, if necessary
-rsync_opts = --rsh=/usr/bin/ssh, --times 
-synkler_server = synkler.example.com
 
-# command to run after a complete transfer.
+# Additional options to pass to rsync, if necessary.  Separate multiple
+#   values by commas.
+rsync_opts = --rsh=/usr/bin/ssh
+
+# The rabbitmq server.
+synkler_server = rabbitmq.example.com
+
+# command to run after a transfer is completed.
 # options:
 #   %f - filename of the completed file.
+#
+# Options are automatically enclosed in quotes.
 cleanup_script = mv %f /home/user/downloads
