@@ -41,7 +41,36 @@ def main():
 
     files = {}
     while (True):
-        #if (args.verbose): minorimpact.fprint("checking for new files")
+        for f in os.listdir(config.download_dir):
+            if (re.search("^\.", f)):
+                continue
+
+            size = minorimpact.dirsize(config.download_dir + "/" + f)
+            mtime = os.path.getmtime(config.download_dir + "/" + f)
+
+            if (f in files):
+                if (files[f]["state"] == "upload"):
+                    if (size == files[f]["size"] and files[f]["mtime"] == mtime):
+                        # The file has stopped changing, we can assume it's no longer being written to -- grab the md5sum.
+                        if (files[f]["md5"] == None):
+                            md5 = minorimpact.md5dir(config.download_dir + "/" + f)
+                            files[f]["md5"] = md5
+                            files[f]["moddate"] = int(time.time())
+                            if (args.verbose): minorimpact.fprint(f"{f} md5:{md5}")
+                    else:
+                        files[f]["size"] = size
+                        files[f]["mtime"] = mtime
+                        files[f]["moddate"] = time.time()
+            else:
+                # These files are more than 30 minutes old and haven't been reported in, they can be
+                #   axed.
+                if (int(time.time()) - mtime > 1800):
+                    if (args.verbose): minorimpact.fprint("deleting " + config.download_dir + "/" + f)
+                    if (os.path.isdir(config.download_dir + "/" + f)):
+                        shutil.rmtree(config.download_dir + "/" + f)
+                    else:
+                        os.remove(config.download_dir + "/" + f)
+
         method, properties, body = channel.basic_get( queue=queue_name, auto_ack=True)
         while body != None:
             routing_key = method.routing_key
@@ -66,36 +95,6 @@ def main():
                         files[f]["moddate"] = int(time.time())
             method, properties, body = channel.basic_get( queue=queue_name, auto_ack=True)
 
-        for f in os.listdir(config.download_dir):
-            if (re.search("^\.", f)):
-                continue
-
-            size = minorimpact.dirsize(config.download_dir + "/" + f)
-            mtime = os.path.getmtime(config.download_dir + "/" + f)
-            if (f not in files):
-                # These files are more than 30 minutes old and haven't been reported in, they can be
-                #   axed.
-                if (int(time.time()) - mtime > 1800):
-                    if (args.verbose): minorimpact.fprint("deleting " + config.download_dir + "/" + f)
-                    if (os.path.isdir(config.download_dir + "/" + f)):
-                        shutil.rmtree(config.download_dir + "/" + f)
-                    else:
-                        os.remove(config.download_dir + "/" + f)
-                continue
-
-            if (f in files):
-                if (files[f]["state"] == "upload"):
-                    if (size == files[f]["size"] and files[f]["mtime"] == mtime):
-                        # The file has stopped changing, we can assume it's no longer being written to -- grab the md5sum.
-                        if (files[f]["md5"] == None):
-                            md5 = minorimpact.md5dir(config.download_dir + "/" + f)
-                            files[f]["md5"] = md5
-                            files[f]["moddate"] = int(time.time())
-                            if (args.verbose): minorimpact.fprint(f"{f} md5:{md5}")
-                    else:
-                        files[f]["size"] = size
-                        files[f]["mtime"] = mtime
-                        files[f]["moddate"] = time.time()
 
         filenames = [key for key in files]
         for f in filenames:

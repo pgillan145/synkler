@@ -82,8 +82,8 @@ while True:
             if (download is False):
                 download = True
                 # TODO: really large files break this whole thing because in the time it takes to upload we lose connection to the rabbitmq server. We either need
-                #   to detect the disconnect and reconnect, or, better yet, spawn a separate thread to handle the rsync and wait until it completes before starting
-                #   the next one.
+                #   to detect the disconnect and reconnect, or, better yet, spawn a separate thread to handle the rsync and monitor it for completion before 
+                #   starting the next one.
                 rsync_command = [rsync, "--archive", "--partial", *rsync_opts, synkler_server + ":\"" + dl_dir + "/" + f + "\"", download_dir + "/"]
                 if (args.verbose): minorimpact.fprint(' '.join(rsync_command))
                 return_code = subprocess.call(rsync_command)
@@ -116,6 +116,8 @@ while True:
         if (files[f]["state"] == "done"):
             if (args.verbose): minorimpact.fprint(f"{f} done")
             channel.basic_publish(exchange='synkler', routing_key='done.' + args.id, body=pickle.dumps(files[f]))
+            # TODO: should we really only send a single message?  It seems like maybe we ought to spam this a few times, just in
+            #    case.  Any clients or middlemen can just ignore it if it's not in their list of going concerns.
             del files[f]
     #if (args.verbose): minorimpact.fprint("\n")
 

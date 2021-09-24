@@ -69,10 +69,6 @@ while True:
             if (args.verbose): minorimpact.fprint(f"found {f}")
             files[f] = {'filename':f, 'pickle_protocol':4, 'mtime':mtime, 'size':size, 'state':'churn', 'md5':None, "dir":upload_dir}
 
-    for f in files:
-        if (files[f]["state"] not in ["churn", "done"]):
-            channel.basic_publish(exchange='synkler', routing_key="new." + args.id, body=pickle.dumps(files[f]))
-
     # Pull the list of files on the middle upload server
     #if (args.verbose): minorimpact.fprint("checking for synkler commands")
     upload = False
@@ -102,6 +98,8 @@ while True:
                             else:
                                 if f in files: del files[f]
                                 if f in uploads: del uploads[f]
+                        # DON'T delete from files: since it still exists in the upload directory, we need to maintain a record of what 
+                        #   we've already sent so we don't keep trying to upload the same files.
                     else:
                         # TODO: start including the hostname in file_data so I know what server is actuall sending these messages.
                         if (args.verbose): minorimpact.fprint(f"ERROR: {f} on final destination doesn't match")
@@ -113,6 +111,8 @@ while True:
             elif (re.match("upload", routing_key) and upload is False):
                 # I don't want to do more than one upload per loop.  The other servers just keep pumping out signals, I don't want to
                 #   too many of them bunching up.  And if things are done, I want them taken care of as soon as possible.
+                # TODO: change state to "uploaded?"  don't we have a date on these things so we can limit uploads to no more than once every
+                #   five minutes?
                 if (files[f]["state"] == "new" and (f not in uploads or (time.time() - uploads[f] > 60))):
                     dest_dir = None
                     if ("dest_dir" in file_data):
@@ -135,11 +135,15 @@ while True:
         # get the next file from the queue
         method,properties,body = channel.basic_get( queue_name, True)
 
-    #if (args.verbose): minorimpact.fprint("\n")
+    for f in files:
+        if (files[f]["state"] not in ["churn", "done"]):
+            channel.basic_publish(exchange='synkler', routing_key="new." + args.id, body=pickle.dumps(files[f]))
+
     time.sleep(5)
 
 # close the connection
 connection.close()
 
+# we don't strictly need to do this, but it's nice.
 os.remove(pidfile)
 
