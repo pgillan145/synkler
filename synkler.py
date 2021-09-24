@@ -11,6 +11,7 @@ import pickle
 import pika
 import re
 import shutil
+import subprocess
 import sys
 import time
 
@@ -68,38 +69,39 @@ def main():
                 continue
 
             mtime = os.path.getmtime(file_dir + '/' + f)
+            size = minorimpact.dirsize(file_dir + '/' + f)
             if (f in files):
-                size = minorimpact.dirsize(file_dir + '/' + f)
                 if (size == files[f]['size'] and files[f]['mtime'] == mtime):
                     # The file has stopped changing, we can assume it's no longer being written to -- grab the md5sum.
                     if (files[f]['md5'] is None):
                         md5 = minorimpact.md5dir(f'{file_dir}/{f}')
                         files[f]['md5'] = md5
-                        files[f]['moddate'] = int(time.time())
+                        files[f]['mod_date'] = int(time.time())
                         if (args.verbose): minorimpact.fprint(f"{f} md5:{md5}")
                         if (mode == 'upload'):
                             files[f]['state'] = 'new'
                 else:
                     files[f]['size'] = size
                     files[f]['mtime'] = mtime
-                    files[f]['moddate'] = int(time.time())
+                    files[f]['mod_date'] = int(time.time())
             else:
                 # These files are more than 30 minutes old and haven't been reported in, they can be
                 #   axed.
                 if (mode == 'central'):
                     if (int(time.time()) - start_time > (keep_minutes * 60) and int(time.time()) - mtime > (keep_minutes * 60)):
-                        if (args.verbose): minorimpact.fprint("deleting " + file_dir + "/" + f)
+                        if (args.verbose): minorimpact.fprint(f"deleting {file_dir}/{f}")
                         if (os.path.isdir(file_dir + '/' + f)):
                             shutil.rmtree(file_dir + '/' + f)
                         else:
                             os.remove(file_dir + '/' + f)
                 elif (mode == 'upload'):
-                    files[f] = {'filename':f, 'pickle_protocol':4, 'mtime':mtime, 'size':size, 'state':'churn', 'md5':None, 'dir':file_dir}
+                    files[f] = {'filename':f, 'pickle_protocol':4, 'mtime':mtime, 'size':size, 'state':'churn', 'md5':None, 'dir':file_dir, 'mod_date':int(time.time()) }
 
         # This 'transfer' flag makes sure we don't to more than one upload or download during each main
         #   loop.  Otherwise the message queue gets backed up, and the other servers have to wait a long
         #   time before they can start processing the individual files.
         transfer = False
+        uploads =  {}
         method, properties, body = channel.basic_get( queue=queue_name, auto_ack=True)
         while body != None:
             routing_key = method.routing_key
@@ -113,18 +115,17 @@ def main():
                     # TODO: Don't just blindly upload everything, set the state to 'new' then verify that we've got space for it
                     #   before setting the state to 'upload'.
                     if (args.verbose): minorimpact.fprint(f"receiving {f}")
-                    files[f] = {'filename':f, 'dir':file_dir, 'size':0, 'mtime':None, 'md5':None, 'state':'upload', 'moddate':int(time.time())}
+                    files[f] = {'filename':f, 'dir':file_dir, 'size':0, 'mtime':None, 'md5':None, 'state':'upload', 'mod_date':int(time.time())}
                 elif (files[f]['size'] == size and files[f]['mtime'] == mtime and files[f]['md5'] == md5):
                     if (files[f]['state'] == 'upload'):
                         if (args.verbose): minorimpact.fprint(f"supplying {f}")
                         files[f]['state'] = 'download'
-                        files[f]['moddate'] = int(time.time())
+                        files[f]['mod_date'] = int(time.time())
             elif (re.match('done', routing_key)):
                 if (f in files):
                     if (files[f]['state'] != 'done'):
-                        if (args.verbose): minorimpact.fprint(f"{f} done")
                         files[f]['state'] = 'done'
-                        files[f]['moddate'] = int(time.time())
+                        files[f]['mod_date'] = int(time.time())
                         if (mode == 'upload'):
                             if files[f]['md5'] == md5 and files[f]['size'] == size and files[f]["mtime"] == mtime:
                                 if (cleanup_script is not None):
@@ -132,17 +133,18 @@ def main():
                                     for i in range(len(command)):
                                         if command[i] == '%f':
                                             command[i] = f
-                                    if (args.verbose): minorimpact.fprint(' '.join(command))
+                                    if (args.verbose): minorimpact.fprint("running cleanup script:" + ' '.join(command))
                                     return_code = subprocess.call(command)
                                     if (return_code != 0):
-                                        if (args.verbose): minorimpact.fprint(f" ... FAILED ({return_code})")
+                                        if (args.verbose): minorimpact.fprint(" ... FAILED (" + str(return_code) + ")")
                                     else:
-                                        if (args.verbose): minorimpact.fprint(f" ... DONE")
+                                        if (args.verbose): minorimpact.fprint(" ... DONE")
                                         del files[f]
-                                        if f in uploads: del uploads[f]
-                            if (args.verbose): minorimpact.fprint(f"ERROR: {f} on final destination doesn't match")    
-                            files[f]['state'] = 'new'
+                            else:
+                                if (args.verbose): minorimpact.fprint(f"ERROR: {f} on final destination doesn't match")    
+                                files[f]['state'] = 'new'
                             if f in uploads: del uploads[f]
+                        if (args.verbose): minorimpact.fprint(f"{f} done")
             elif (re.match('upload', routing_key) and mode == 'upload' and transfer is False):
                 # TODO: change state to "uploaded?"  don't we have a date on these things so we can limit uploads
                 #   to no more than once ever five minutes?
@@ -171,7 +173,7 @@ def main():
         filenames = [key for key in files]
         for f in filenames:
             if (mode == 'central'):
-                if (files[f]['state'] == 'done' and (int(time.time()) - files[f]['moddate'] > 60)):
+                if (files[f]['state'] == 'done' and (int(time.time()) - files[f]['mod_date'] > 60)):
                     if (args.verbose): minorimpact.fprint(f"clearing {f}")
                     del files[f]
                 elif (files[f]['state'] == 'upload'):
