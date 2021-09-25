@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 
-__version__ = "0.0.1"
+__version__ = "0.0.3"
 
 def main():
     parser = argparse.ArgumentParser(description="Synkler")
@@ -30,7 +30,7 @@ def main():
     file_dir = config['default']['file_dir']
     keep_minutes = int(config['default']['keep_minutes']) if ('keep_minutes' in config['default']) else 30
     mode = config['default']['mode'] if ('mode' in config['default']) and config['default']['mode'] is not None else 'central'
-    pidfile = config['default']['pidfile'] if ('pidfile' in config['default']) and config['default']['pidfile'] is not None else '/tmp/synkler.pid'
+    pidfile = config['default']['pidfile'] if ('pidfile' in config['default']) and config['default']['pidfile'] is not None else "/tmp/synkler.pid"
     rsync = config['default']['rsync'] if ('rsync' in config['default']) else None
     rsync_opts = config['default']['rsync_opts'] if ('rsync_opts' in config['default']) else ''
     rsync_opts = list(csv.reader([rsync_opts]))[0]
@@ -45,7 +45,7 @@ def main():
     if (rsync is None and mode != 'central'):
         sys.exit(f"'rsync' is not set")
 
-    if (minorimpact.checkforduplicates(pidfile)):
+    if (pidfile is not None and minorimpact.checkforduplicates(pidfile)):
         # TODO: if we run it from the command line, we want some indicator as to why it didn't run, but as a cron
         #   it fills up the log.  We really should use a logging module rather than STDOUT.
         if (args.verbose): sys.exit() #sys.exit('already running')

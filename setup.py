@@ -16,6 +16,7 @@ setup(
     install_requires=['minorimpact', 'pika'],
     license='GPLv3',
     long_description = readme,
+    long_description_content_type = "text/markdown",
     setup_requires=[],
     tests_require=[],
     url="https://github.com/pgillan145/synkler",

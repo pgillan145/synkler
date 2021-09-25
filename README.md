@@ -5,14 +5,14 @@ Message queue based rsync wrangler for copying files across multiple servers.
 Synkler exists to solve the (probably ridiculous) problem of needing to copy from server A (**upload**) to server C (**download**) when neither can connect directly to each other but both can connect to server B (**central**) -- with the additional complication that the files *will not live at either the source nor the destination after the copy is complete*.
 
 The basic workflow is as follows:  
-- *file* arrives on the **upload** server, in the directory synkler is configured to monitor.  
-- **upload** notifies **central** via **synkler** (i.e. [rabbitmq](https://www.rabbitmq.com/)) that it has a new file or directory to transder
+- *file* arrives on the **upload** server, in the directory synkler is configured to monitor (_file_dir_).  
+- **upload** notifies **central** via **synkler** (i.e. [rabbitmq](https://www.rabbitmq.com/)) that it has a new file or directory to transfer
 - once **central** is ready to receive it signals **upload** to begin the rsync
 - when the transfer is complete, **central** will verify its local copy of *file* by comparing the md5 hash against what's reported by **upload** 
 - **central** will then signal **download** to begin an rsync of *file* from **central** to its own local file system
 - once completed, **download** verifies its copy of *file* before signalling to both **central** and **upload** that it has successfully received it
-- **upload** and **download** then have the option to run "cleanup" scripts on *file*, which are free to  move it from its original location to wherever
-- after a configurable number of minutes, **central** will delete its version of *file*
+- **upload** and **download** then have the option to run a  _cleanup_script_ on *file*, which are free to  move it from its original location to wherever
+- after a configurable number of minutes (_keep_minutes_), **central** will delete its version of *file*
 
 
 ## Installation
@@ -34,7 +34,7 @@ Modify [sample-config](https://github.com/pgillan145/synkler/blob/main/sample-co
     $HOME/.config/synkler/synkler.conf
     /etc/synkler.conf
 ```
-... or call synkler with the configuration file as command line argument:
+... or call synkler with the configuration file as a command line argument:
 ```
     $ synkler --config /location/of/synkler/config.file
 ```
@@ -45,15 +45,15 @@ Modify [sample-config](https://github.com/pgillan145/synkler/blob/main/sample-co
 ```
 
 ## Starting
-As long as you set 'pidfile' in 'synkler.conf', you can call synkler from a cron without worrying about spawning multiple processes:
+As long as you set _pidfile_ in 'synkler.conf', you can call synkler from a cron without worrying about spawning multiple processes:
 ```
     * * * * * /usr/bin/env synkler --verbose >> /tmp/synkler.log 2>&1
 ```
 
 ## Stopping
-To stop synkler, just kill the process.  Assuming 'pidfile' is defined in *synkler.conf*:
+To stop synkler, just kill the process.  Assuming _pidfile_ is defined in *synkler.conf*:
 ```
-    $ cat *pidfile* | xargs.kill
+    $ cat <pidfile> | xargs.kill
 ```
 
 Also remember to disable the cron, of course, if that's how you were starting it:

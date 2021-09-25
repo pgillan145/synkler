@@ -1,25 +1,29 @@
 
 [default]
-# Directory where the files live.
+# Directory where the files live. Required.
 file_dir = /home/user/temp_downloads
 
 # How long to keep a file on the central server after the transfer is complete, in minutes.
 keep_minutes = 30
 
-# 'upload', 'central', or 'download'
+# 'upload', 'central', or 'download'. Required.
 mode = central
 
-# rsync command
+# Temporary location where synkler can store the id of the currently running process (thus
+#   preventing multiple processes from using this configuration simultaneously).
+pidfile = /tmp/synkler.pid
+
+# location of the system's rsync command. Required.
 rsync = /usr/bin/env rsync
 
 # Additional options to pass to rsync, if necessary.  Separate multiple
 #   values by commas.
 rsync_opts = --rsh=/usr/bin/ssh
 
-# The rabbitmq server.
+# The rabbitmq server. Required
 synkler_server = rabbitmq.example.com
 
-# command to run after a transfer is completed.
+# command to run on the 'upload' or 'download' servers after a transfer is completed.
 # options:
 #   %f - name of the completed file
 #   %F - full path of the completed file
