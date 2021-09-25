@@ -54,6 +54,8 @@ def main():
     if mode == 'central':
         channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='done.' + args.id)
         channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='new.' + args.id)
+    elif mode == 'download':
+        channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='download.' + args.id)
     elif mode == 'upload':
         channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='done.' + args.id)
         channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='upload.' + args.id)
@@ -133,16 +135,22 @@ def main():
                                     for i in range(len(command)):
                                         if command[i] == '%f':
                                             command[i] = f
+                                        elif command[i] == '%F':
+                                            command[i] = file_dir + '/' + f
                                     if (args.verbose): minorimpact.fprint("running cleanup script:" + ' '.join(command))
                                     return_code = subprocess.call(command)
                                     if (return_code != 0):
                                         if (args.verbose): minorimpact.fprint(" ... FAILED (" + str(return_code) + ")")
                                     else:
                                         if (args.verbose): minorimpact.fprint(" ... DONE")
+                                        # Since the file no longer lives in the download directory, delete it from the internal
+                                        #   dict.
                                         del files[f]
                             else:
                                 if (args.verbose): minorimpact.fprint(f"ERROR: {f} on final destination doesn't match")    
                                 files[f]['state'] = 'new'
+                            # Leave the file in the the internal dict, otherwise we'd just keep trying to upload it over
+                            #   and over again -- but delete it from the 'uploads' dict, just in case it's requested again.
                             if f in uploads: del uploads[f]
                         if (args.verbose): minorimpact.fprint(f"{f} done")
             elif (re.match('upload', routing_key) and mode == 'upload' and transfer is False):
@@ -164,11 +172,52 @@ def main():
                         else:
                             uploads[f] = int(time.time())
                             if (args.verbose): minorimpact.fprint(f" ... DONE")
+            elif (re.match('download', routing_key) and mode == 'download'):
+                file_data = pickle.loads(body)
+                f = file_data['filename']
+                dir = file_data['dir']
+                md5 = file_data['md5']
+                size = file_data['size']
+                mtime = file_data['mtime']
 
+                if (f not in files):
+                    if (args.verbose): minorimpact.fprint(f"new file:{f}")
+                    files[f]  = {'filename':f, 'size':0, 'md5':None, 'mtime':0, 'dir':file_dir, 'state':'download', 'mod_date':int(time.time()) }
+
+                if (files[f]['size'] != size or md5 != files[f]['md5'] or files[f]['mtime'] != mtime):
+                    if (transfer is False):
+                        transfer = True
+                        rsync_command = [rsync, '--archive', '--partial', *rsync_opts, f'{synkler_server}:"{dir}/{f}"', f'{file_dir}/']
+                        if (args.verbose): minorimpact.fprint(' '.join(rsync_command))
+                        return_code = subprocess.call(rsync_command)
+                        if (return_code == 0):
+                            if (args.verbose): minorimpact.fprint(f" ... DONE")
+                            files[f]['size'] = minorimpact.dirsize(file_dir + '/' + f)
+                            files[f]['mtime'] = os.path.getmtime(file_dir + '/' + f)
+                            files[f]['md5'] = minorimpact.md5dir(file_dir + '/' + f)
+                            files[f]['mod_date'] = int(time.time())
+                        elif (args.verbose): minorimpact.fprint(f" ... FAIL ({return_code})")
+                else:
+                    if (files[f]['state'] != 'done'):
+                        files[f]['state'] = 'done'
+                        files[f]['mod_date'] = int(time.time())
+                        if (cleanup_script is not None):
+                            command = cleanup_script.split(' ')
+                            for i in range(len(command)):
+                                if command[i] == '%f':
+                                    command[i] = f
+                                elif command[i] == '%F':
+                                    command[i] = file_dir + '/' + f
+                            if (args.verbose): minorimpact.fprint("running cleanup script:" + ' '.join(command))
+                            return_code = subprocess.call(command)
+                            if (return_code == 0):
+                                if (args.verbose): minorimpact.fprint(f" ... DONE")
+                            else:
+                                if (args.verbose): minorimpact.fprint(f" ... FAILED ({return_code})")
+                        if (args.verbose): minorimpact.fprint(f"{f}: done")
 
             # Get the next item from queue.
             method, properties, body = channel.basic_get( queue=queue_name, auto_ack=True)
-
 
         filenames = [key for key in files]
         for f in filenames:
@@ -185,6 +234,13 @@ def main():
                     # TODO: Figure out if I need this.  Is there a fourth state this can be in?
                     if (files[f]['state'] != 'new'): minorimpact.fprint(f"{f}:{files[f]['state']}???")
                     channel.basic_publish(exchange='synkler', routing_key='new.' + args.id, body=pickle.dumps(files[f]))
+            elif (mode == 'download'):
+                if (files[f]['state'] == 'done'):
+                    channel.basic_publish(exchange='synkler', routing_key='done.' + args.id, body=pickle.dumps(files[f]))
+                    # TODO: should we really only send a single message?  It seems like maybe we ought to spam this a few times, just in
+                    #    case.  Any clients or middlemen can just ignore it if it's not in their list of going concerns.
+                    del files[f]
+
 
         time.sleep(5)
 
