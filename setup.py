@@ -3,6 +3,9 @@
 from setuptools import find_packages, setup
 import synkler
 
+with open("./README.md", encoding="utf-8") as f:
+    readme = f.read()
+
 setup(
     name='synkler',
     description="A three-body rsync solution.",
@@ -12,6 +15,7 @@ setup(
     entry_points = { "console_scripts": [ "synkler = synkler:main" ] },
     install_requires=['minorimpact', 'pika'],
     license='GPLv3',
+    long_description = readme,
     setup_requires=[],
     tests_require=[],
     url="https://github.com/pgillan145/synkler",
