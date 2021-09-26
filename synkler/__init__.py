@@ -110,7 +110,6 @@ def main():
         #   loop.  Otherwise the message queue gets backed up, and the other servers have to wait a long
         #   time before they can start processing the individual files.
         transfer = False
-        uploads =  {}
         method, properties, body = channel.basic_get( queue=queue_name, auto_ack=True)
         while body != None:
             routing_key = method.routing_key
@@ -135,6 +134,7 @@ def main():
                     if (files[f]['state'] != 'done'):
                         files[f]['state'] = 'done'
                         files[f]['mod_date'] = int(time.time())
+                        if (args.verbose): minorimpact.fprint(f"{f} done")
                         if (mode == 'upload'):
                             if files[f]['md5'] == md5 and files[f]['size'] == size and files[f]["mtime"] == mtime:
                                 if (cleanup_script is not None):
@@ -153,17 +153,15 @@ def main():
                                         # Since the file no longer lives in the download directory, delete it from the internal
                                         #   dict.
                                         del files[f]
+                                else:
+                                    # Leave the file in the the internal dict (since it still lives here), otherwise we'd just keep trying to upload it over
+                                    #   and over again.
+                                    pass
                             else:
-                                if (args.verbose): minorimpact.fprint(f"ERROR: {f} on final destination doesn't match")    
-                                files[f]['state'] = 'new'
-                            # Leave the file in the the internal dict, otherwise we'd just keep trying to upload it over
-                            #   and over again -- but delete it from the 'uploads' dict, just in case it's requested again.
-                            if f in uploads: del uploads[f]
-                        if (args.verbose): minorimpact.fprint(f"{f} done")
+                                if (args.verbose): minorimpact.fprint(f"ERROR: {f} on final destination doesn't match, resetting state.")
+                                del files[f]
             elif (re.match('upload', routing_key) and mode == 'upload' and transfer is False):
-                # TODO: change state to "uploaded?"  don't we have a date on these things so we can limit uploads
-                #   to no more than once ever five minutes?
-                if (files[f]['state'] == 'new' and (f not in uploads or (time.time() - uploads[f] > 60))):
+                if (files[f]['state'] == 'new' or (files[f]['state'] == 'uploaded' and files[f]['mod_date'] < (time.time() - 300))):
                     dest_dir = file_data['dir']
                     if (dest_dir is not None and (files[f]['md5'] != md5 or files[f]['size'] != size or files[f]['mtime'] != mtime)):
                         transfer = True
@@ -176,9 +174,11 @@ def main():
                         return_code = subprocess.call(rsync_command)
                         if (return_code != 0):
                             if (args.verbose): minorimpact.fprint(f" ... FAILED ({return_code})")
+                            files[f]['state'] = 'new'
                         else:
-                            uploads[f] = int(time.time())
+                            files[f]['state'] = 'uploaded'
                             if (args.verbose): minorimpact.fprint(f" ... DONE")
+                        files[f]['mod_date'] = int(time.time())
             elif (re.match('download', routing_key) and mode == 'download'):
                 file_data = pickle.loads(body)
                 f = file_data['filename']
@@ -242,7 +242,7 @@ def main():
             elif (mode == 'upload'):
                 if (files[f]['state'] not in ['churn', 'done']):
                     # TODO: Figure out if I need this.  Is there a fourth state this can be in?
-                    if (files[f]['state'] != 'new'): minorimpact.fprint(f"{f}:{files[f]['state']}???")
+                    if (files[f]['state'] not in ['new', 'uploaded']): minorimpact.fprint(f"{f}:{files[f]['state']}???")
                     channel.basic_publish(exchange='synkler', routing_key='new.' + args.id, body=pickle.dumps(files[f]))
             elif (mode == 'download'):
                 if (files[f]['state'] == 'done'):
