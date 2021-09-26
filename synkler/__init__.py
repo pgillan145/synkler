@@ -124,12 +124,12 @@ def main():
                     # TODO: Don't just blindly upload everything, set the state to 'new' then verify that we've got space for it
                     #   before setting the state to 'upload'.
                     if (args.verbose): minorimpact.fprint(f"receiving {f}")
-                    files[f] = {'filename':f, 'dir':file_dir, 'size':0, 'mtime':None, 'md5':None, 'state':'upload', 'mod_date':int(time.time())}
+                    files[f] = {'filename':f, 'dir':file_dir, 'size':0, 'mtime':None, 'md5':None, 'state':'upload'}
                 elif (files[f]['size'] == size and files[f]['mtime'] == mtime and files[f]['md5'] == md5):
                     if (files[f]['state'] == 'upload'):
                         if (args.verbose): minorimpact.fprint(f"supplying {f}")
                         files[f]['state'] = 'download'
-                        files[f]['mod_date'] = int(time.time())
+                files[f]['mod_date'] = int(time.time())
             elif (re.match('done', routing_key)):
                 if (f in files):
                     if (files[f]['state'] != 'done'):
@@ -232,7 +232,10 @@ def main():
                 if (files[f]['state'] == 'done' and (int(time.time()) - files[f]['mod_date'] > 60)):
                     if (args.verbose): minorimpact.fprint(f"clearing {f}")
                     del files[f]
-                elif (files[f]['state'] == 'upload'):
+                elif (files[f]['state'] == 'upload' and (int(time.time()) - files[f]['mod_date'] < 30)):
+                    # Stop sending an 'upload' signal if we haven't gotten a 'new' message within the last 30 seconds.  Either the
+                    #   file no longer exists, or 'upload' is blocking and isn't getting the messages anyway.
+                    # TODO: Figure out when it's safe to delete zombie files from the array.
                     channel.basic_publish(exchange='synkler', routing_key='upload.' + args.id, body=pickle.dumps(files[f], protocol=4))
                 elif (files[f]['state'] == 'download'):
                     channel.basic_publish(exchange='synkler', routing_key='download.' + args.id, body=pickle.dumps(files[f], protocol=4))
