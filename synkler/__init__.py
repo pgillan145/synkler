@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 
-__version__ = "0.0.3"
+__version__ = "0.0.4"
 
 def main():
     parser = argparse.ArgumentParser(description="Synkler")
@@ -94,9 +94,9 @@ def main():
                     files[f]['mtime'] = mtime
                     files[f]['mod_date'] = int(time.time())
             else:
-                # These files are more than 30 minutes old and haven't been reported in, they can be
-                #   axed.
                 if (mode == 'central'):
+                    # These files are more than 30 minutes old and haven't been reported in, they can be
+                    #   axed.
                     if (int(time.time()) - start_time > (keep_minutes * 60) and int(time.time()) - mtime > (keep_minutes * 60)):
                         if (args.verbose): minorimpact.fprint(f"deleting {file_dir}/{f}")
                         if (os.path.isdir(file_dir + '/' + f)):
@@ -161,10 +161,14 @@ def main():
                                 if (args.verbose): minorimpact.fprint(f"ERROR: {f} on final destination doesn't match, resetting state.")
                                 del files[f]
             elif (re.match('upload', routing_key) and mode == 'upload' and transfer is False):
-                if (files[f]['state'] == 'new' or (files[f]['state'] == 'uploaded' and files[f]['mod_date'] < (time.time() - 300))):
+                if (files[f]['state'] == 'new' or (files[f]['state'] == 'uploaded' and files[f]['mod_date'] < (time.time() - 60))):
                     dest_dir = file_data['dir']
                     if (dest_dir is not None and (files[f]['md5'] != md5 or files[f]['size'] != size or files[f]['mtime'] != mtime)):
                         transfer = True
+                        if (files[f]['state'] == 'uploaded' and files[f]['md5'] != md5):
+                            # It looks like we can sometimes get a bogus md5 when the file is first read, so if central is reporting a different md5,
+                            #   let's just confirm ours.
+                            files[f]['md5'] = minorimpact.md5dir(f'{file_dir}/{f}')
                         # TODO: really large files break this whole thing because in the time it takes to upload
                         #   we lose connection to the rabbitmq server.  We either need to detect the disconnect 
                         #   and reconnect or spawn a separate thread to handle the rsync and wait until it
