@@ -249,7 +249,7 @@ def main():
                         if (args.debug): print(f"channel download.{args.id}: {f}")
                         channel.basic_publish(exchange='synkler', routing_key='download.' + args.id, body=pickle.dumps(files[f], protocol=4))
             elif (mode == 'upload'):
-                if (files[f]['state'] == 'upload'):
+                if (files[f]['state'] in ('new', 'uploaded')):
                     if (args.debug): print(f"channel new.{args.id}: {f}")
                     channel.basic_publish(exchange='synkler', routing_key='new.' + args.id, body=pickle.dumps(files[f]))
                 elif (files[f]['state'] == 'done'):
