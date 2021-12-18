@@ -118,114 +118,96 @@ def main():
             md5 = file_data['md5']
             mtime = file_data['mtime']
             size = file_data['size']
-            if (re.match('new', routing_key) and mode == 'central'):
-                if (f not in files):
-                    # TODO: Don't just blindly upload everything, set the state to 'new' then verify that we've got space for it
-                    #   before setting the state to 'upload'.
-                    if (args.verbose): minorimpact.fprint(f"receiving {f}")
-                    files[f] = {'filename':f, 'dir':file_dir, 'size':0, 'mtime':None, 'md5':None, 'state':'upload'}
-                elif (files[f]['size'] == size and files[f]['mtime'] == mtime and files[f]['md5'] == md5):
-                    if (files[f]['state'] == 'upload'):
-                        if (args.verbose): minorimpact.fprint(f"supplying {f}")
-                        files[f]['state'] = 'download'
-                files[f]['mod_date'] = int(time.time())
-            elif (re.match('done', routing_key)):
-                if (f in files):
-                    if (files[f]['state'] != 'done'):
-                        files[f]['state'] = 'done'
-                        files[f]['mod_date'] = int(time.time())
-                        if (args.verbose): minorimpact.fprint(f"{f} done")
-                        if (mode == 'upload'):
-                            if files[f]['md5'] == md5 and files[f]['size'] == size and files[f]["mtime"] == mtime:
-                                if (cleanup_script is not None):
-                                    command = cleanup_script.split(' ')
-                                    for i in range(len(command)):
-                                        if command[i] == '%f':
-                                            command[i] = f
-                                        elif command[i] == '%F':
-                                            command[i] = file_dir + '/' + f
-                                    if (args.verbose): minorimpact.fprint("running cleanup script:" + ' '.join(command))
-                                    return_code = subprocess.call(command)
-                                    if (return_code != 0):
-                                        if (args.verbose): minorimpact.fprint(" ... FAILED (" + str(return_code) + ")")
-                                    else:
-                                        if (args.verbose): minorimpact.fprint(" ... DONE")
-                                        # Since the file no longer lives in the download directory, delete it from the internal
-                                        #   dict.
-                                        del files[f]
+            if (mode == 'central'):
+                if (re.match('new', routing_key)):
+                    if (f not in files):
+                        # TODO: Don't just blindly upload everything, set the state to 'new' then verify that we've got space for it
+                        #   before setting the state to 'upload'.
+                        if (args.verbose): minorimpact.fprint(f"receiving {f}")
+                        files[f] = {'filename':f, 'dir':file_dir, 'size':0, 'mtime':None, 'md5':None, 'state':'upload'}
+                    elif (files[f]['size'] == size and files[f]['mtime'] == mtime and files[f]['md5'] == md5):
+                        if (files[f]['state'] == 'upload'):
+                            if (args.verbose): minorimpact.fprint(f"supplying {f}")
+                            files[f]['state'] = 'download'
+                    files[f]['mod_date'] = int(time.time())
+                elif (re.match('done', routing_key)):
+                    if (f in files):
+                        if (files[f]['state'] != 'done'):
+                            files[f]['state'] = 'done'
+                            files[f]['mod_date'] = int(time.time())
+                            if (args.verbose): minorimpact.fprint(f"{f} done")
+            elif (mode == 'upload'):
+                if (re.match('upload', routing_key)):
+                    if (transfer is False):
+                        if (files[f]['state'] == 'new' or (files[f]['state'] == 'uploaded' and files[f]['mod_date'] < (time.time() - 60))):
+                            dest_dir = file_data['dir']
+                            if (dest_dir is not None and (files[f]['md5'] != md5 or files[f]['size'] != size or files[f]['mtime'] != mtime)):
+                                transfer = True
+                                if (files[f]['state'] == 'uploaded' and files[f]['md5'] != md5):
+                                    # It looks like we can sometimes get a bogus md5 when the file is first read, so if central is reporting a different md5,
+                                    #   let's just confirm ours.
+                                    files[f]['md5'] = minorimpact.md5dir(f'{file_dir}/{f}')
+                                # TODO: really large files break this whole thing because in the time it takes to upload
+                                #   we lose connection to the rabbitmq server.  We either need to detect the disconnect 
+                                #   and reconnect or spawn a separate thread to handle the rsync and wait until it
+                                #   completes before starting the next one.
+                                rsync_command = [rsync, '--archive', '--partial', *rsync_opts, f'{file_dir}/{f}', f'{synkler_server}:{dest_dir}/']
+                                if (args.verbose): minorimpact.fprint(' '.join(rsync_command))
+                                return_code = subprocess.call(rsync_command)
+                                if (return_code != 0):
+                                    if (args.verbose): minorimpact.fprint(f" ... FAILED ({return_code})")
+                                    files[f]['state'] = 'new'
                                 else:
-                                    # Leave the file in the the internal dict (since it still lives here), otherwise we'd just keep trying to upload it over
-                                    #   and over again.
-                                    pass
+                                    files[f]['state'] = 'uploaded'
+                                    if (args.verbose): minorimpact.fprint(f" ... DONE")
+                                files[f]['mod_date'] = int(time.time())
+                elif (re.match('done', routing_key)):
+                    if (f in files):
+                        files[f]['mod_date'] = int(time.time())
+                        if (files[f]['state'] != 'done'):
+                            if files[f]['md5'] == md5 and files[f]['size'] == size and files[f]["mtime"] == mtime:
+                                files[f]['state'] = 'done'
+                                if (args.verbose): minorimpact.fprint(f"{f} done")
                             else:
                                 if (args.verbose): minorimpact.fprint(f"ERROR: {f} on final destination doesn't match, resetting state.")
                                 del files[f]
-            elif (re.match('upload', routing_key) and mode == 'upload' and transfer is False):
-                if (files[f]['state'] == 'new' or (files[f]['state'] == 'uploaded' and files[f]['mod_date'] < (time.time() - 60))):
-                    dest_dir = file_data['dir']
-                    if (dest_dir is not None and (files[f]['md5'] != md5 or files[f]['size'] != size or files[f]['mtime'] != mtime)):
-                        transfer = True
-                        if (files[f]['state'] == 'uploaded' and files[f]['md5'] != md5):
-                            # It looks like we can sometimes get a bogus md5 when the file is first read, so if central is reporting a different md5,
-                            #   let's just confirm ours.
-                            files[f]['md5'] = minorimpact.md5dir(f'{file_dir}/{f}')
-                        # TODO: really large files break this whole thing because in the time it takes to upload
-                        #   we lose connection to the rabbitmq server.  We either need to detect the disconnect 
-                        #   and reconnect or spawn a separate thread to handle the rsync and wait until it
-                        #   completes before starting the next one.
-                        rsync_command = [rsync, '--archive', '--partial', *rsync_opts, f'{file_dir}/{f}', f'{synkler_server}:{dest_dir}/']
-                        if (args.verbose): minorimpact.fprint(' '.join(rsync_command))
-                        return_code = subprocess.call(rsync_command)
-                        if (return_code != 0):
-                            if (args.verbose): minorimpact.fprint(f" ... FAILED ({return_code})")
-                            files[f]['state'] = 'new'
-                        else:
-                            files[f]['state'] = 'uploaded'
-                            if (args.verbose): minorimpact.fprint(f" ... DONE")
-                        files[f]['mod_date'] = int(time.time())
-            elif (re.match('download', routing_key) and mode == 'download'):
-                file_data = pickle.loads(body)
-                f = file_data['filename']
-                dir = file_data['dir']
-                md5 = file_data['md5']
-                size = file_data['size']
-                mtime = file_data['mtime']
+            elif (mode == 'download'):
+                 if (re.match('download', routing_key)):
+                    file_data = pickle.loads(body)
+                    f = file_data['filename']
+                    dir = file_data['dir']
+                    md5 = file_data['md5']
+                    size = file_data['size']
+                    mtime = file_data['mtime']
 
-                if (f not in files):
-                    if (args.verbose): minorimpact.fprint(f"new file:{f}")
-                    files[f]  = {'filename':f, 'size':0, 'md5':None, 'mtime':0, 'dir':file_dir, 'state':'download', 'mod_date':int(time.time()) }
+                    if (f not in files):
+                        if (args.verbose): minorimpact.fprint(f"new file:{f}")
+                        files[f]  = {'filename':f, 'size':0, 'md5':None, 'mtime':0, 'dir':file_dir, 'state':'download', 'mod_date':int(time.time()) }
 
-                if (files[f]['size'] != size or md5 != files[f]['md5'] or files[f]['mtime'] != mtime):
-                    if (transfer is False):
-                        transfer = True
-                        rsync_command = [rsync, '--archive', '--partial', *rsync_opts, f'{synkler_server}:"{dir}/{f}"', f'{file_dir}/']
-                        if (args.verbose): minorimpact.fprint(' '.join(rsync_command))
-                        return_code = subprocess.call(rsync_command)
-                        if (return_code == 0):
-                            if (args.verbose): minorimpact.fprint(f" ... DONE")
-                            files[f]['size'] = minorimpact.dirsize(file_dir + '/' + f)
-                            files[f]['mtime'] = os.path.getmtime(file_dir + '/' + f)
-                            files[f]['md5'] = minorimpact.md5dir(file_dir + '/' + f)
-                            files[f]['mod_date'] = int(time.time())
-                        elif (args.verbose): minorimpact.fprint(f" ... FAIL ({return_code})")
-                else:
-                    if (files[f]['state'] != 'done'):
-                        files[f]['state'] = 'done'
-                        files[f]['mod_date'] = int(time.time())
-                        if (cleanup_script is not None):
-                            command = cleanup_script.split(' ')
-                            for i in range(len(command)):
-                                if command[i] == '%f':
-                                    command[i] = f
-                                elif command[i] == '%F':
-                                    command[i] = file_dir + '/' + f
-                            if (args.verbose): minorimpact.fprint("running cleanup script:" + ' '.join(command))
-                            return_code = subprocess.call(command)
+                    if (files[f]['size'] != size or md5 != files[f]['md5'] or files[f]['mtime'] != mtime):
+                        if (transfer is False):
+                            transfer = True
+                            rsync_command = [rsync, '--archive', '--partial', *rsync_opts, f'{synkler_server}:"{dir}/{f}"', f'{file_dir}/']
+                            if (args.verbose): minorimpact.fprint(' '.join(rsync_command))
+                            return_code = subprocess.call(rsync_command)
                             if (return_code == 0):
                                 if (args.verbose): minorimpact.fprint(f" ... DONE")
-                            else:
-                                if (args.verbose): minorimpact.fprint(f" ... FAILED ({return_code})")
-                        if (args.verbose): minorimpact.fprint(f"{f}: done")
+                                files[f]['size'] = minorimpact.dirsize(file_dir + '/' + f)
+                                files[f]['mtime'] = os.path.getmtime(file_dir + '/' + f)
+                                files[f]['md5'] = minorimpact.md5dir(file_dir + '/' + f)
+                                files[f]['mod_date'] = int(time.time())
+                            elif (args.verbose): minorimpact.fprint(f" ... FAIL ({return_code})")
+                    else:
+                        if (files[f]['state'] != 'done'):
+                            files[f]['state'] = 'done'
+                            files[f]['mod_date'] = int(time.time())
+                            if (args.verbose): minorimpact.fprint(f"{f}: done")
+                 elif (re.match('new', routing_key)):
+                     if (f in files):
+                         files[f]['mod_date'] = int(time.time())
+                         if (files[f]['state'] == 'done' and (files[f]['size'] != size or md5 != files[f]['md5'] or files[f]['mtime'] != mtime)):
+                            del files[f]
+                            os.remove(file_dir + '/' + f)
 
             # Get the next item from queue.
             method, properties, body = channel.basic_get( queue=queue_name, auto_ack=True)
@@ -248,14 +230,47 @@ def main():
                     # TODO: Figure out if I need this.  Is there a fourth state this can be in?
                     if (files[f]['state'] not in ['new', 'uploaded']): minorimpact.fprint(f"{f}:{files[f]['state']}???")
                     channel.basic_publish(exchange='synkler', routing_key='new.' + args.id, body=pickle.dumps(files[f]))
+                elif (files[f]['state'] == 'done'):
+                    if (cleanup_script is not None):
+                        command = cleanup_script.split(' ')
+                        for i in range(len(command)):
+                            if command[i] == '%f':
+                                command[i] = f
+                            elif command[i] == '%F':
+                                command[i] = file_dir + '/' + f
+                        if (args.verbose): minorimpact.fprint("running cleanup script:" + ' '.join(command))
+                        return_code = subprocess.call(command)
+                        if (return_code != 0):
+                            if (args.verbose): minorimpact.fprint(" ... FAILED (" + str(return_code) + ")")
+                        else:
+                            if (args.verbose): minorimpact.fprint(" ... DONE")
+                            # Since the file no longer lives in the download directory, delete it from the internal
+                            #   dict.
+                            del files[f]
+                else:
+                    # The file just lives here, so we just... ignore it, I guess
+                    pass
             elif (mode == 'download'):
                 if (files[f]['state'] == 'done'):
                     channel.basic_publish(exchange='synkler', routing_key='done.' + args.id, body=pickle.dumps(files[f]))
                     # TODO: should we really only send a single message?  It seems like maybe we ought to spam this a few times, just in
                     #    case.  Any clients or middlemen can just ignore it if it's not in their list of going concerns.
-                    del files[f]
+                    if ((int(time.time()) - files[f]['mod_date']) < 30):
+                        if (cleanup_script is not None):
+                            command = cleanup_script.split(' ')
+                            for i in range(len(command)):
+                                if command[i] == '%f':
+                                    command[i] = f
+                                elif command[i] == '%F':
+                                    command[i] = file_dir + '/' + f
+                            if (args.verbose): minorimpact.fprint("running cleanup script:" + ' '.join(command))
+                            return_code = subprocess.call(command)
+                            if (return_code == 0):
+                                if (args.verbose): minorimpact.fprint(f" ... DONE")
+                            else:
+                                if (args.verbose): minorimpact.fprint(f" ... FAILED ({return_code})")
 
-
+                            del files[f]
         time.sleep(5)
 
     # TODO: Figure out a way to make sure these get called, or get rid of them.
