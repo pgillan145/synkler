@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 
-__version__ = "0.0.4"
+__version__ = "0.0.5"
 
 def main():
     parser = argparse.ArgumentParser(description="Synkler")
@@ -63,6 +63,8 @@ def main():
     if mode == 'central':
         channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='done.' + args.id)
         channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='new.' + args.id)
+        file_dir = file_dir + '/' + args.id
+        os.makedirs(f'{file_dir}', exist_ok=True)
     elif mode == 'download':
         channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='download.' + args.id)
         channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='new.' + args.id)
@@ -149,10 +151,6 @@ def main():
                                     # It looks like we can sometimes get a bogus md5 when the file is first read, so if central is reporting a different md5,
                                     #   let's just confirm ours.
                                     files[f]['md5'] = minorimpact.md5dir(f'{file_dir}/{f}')
-                                # TODO: really large files break this whole thing because in the time it takes to upload
-                                #   we lose connection to the rabbitmq server.  We either need to detect the disconnect 
-                                #   and reconnect or spawn a separate thread to handle the rsync and wait until it
-                                #   completes before starting the next one.
                                 rsync_command = [rsync, '--archive', '--partial', *rsync_opts, f'{file_dir}/{f}', f'{synkler_server}:{dest_dir}/']
                                 if (args.verbose): minorimpact.fprint(f"sending {f}")
                                 if (args.debug): minorimpact.fprint(' '.join(rsync_command))
@@ -171,7 +169,7 @@ def main():
                                 if (args.verbose): minorimpact.fprint(f"{f} done")
                             transfer = None
                         elif (transfer['proc'].poll() is None):
-                            if (args.debug): minorimpact.fprint(f" still transfering {f}")
+                            if (args.debug): minorimpact.fprint(f"still transfering {f}")
                 elif (re.match('done', routing_key)):
                     if (f in files):
                         files[f]['mod_date'] = int(time.time())
@@ -217,7 +215,7 @@ def main():
                                     if (args.verbose): minorimpact.fprint(f"done downloading {f}")
                                 transfer = None
                             elif (transfer['proc'].poll() is None):
-                                if (args.debug): minorimpact.fprint(f" still transfering {f}")
+                                if (args.debug): minorimpact.fprint(f"still transfering {f}")
                     else:
                         if (files[f]['state'] != 'done'):
                             files[f]['state'] = 'done'
