@@ -73,6 +73,7 @@ def main():
     start_time = int(time.time())
 
     files = {}
+    transfer = None
     while (True):
         for f in os.listdir(file_dir):
             if (re.search('^\.', f)):
@@ -107,10 +108,6 @@ def main():
                 elif (mode == 'upload'):
                     files[f] = {'filename':f, 'pickle_protocol':4, 'mtime':mtime, 'size':size, 'state':'churn', 'md5':None, 'dir':file_dir, 'mod_date':int(time.time()) }
 
-        # This 'transfer' flag makes sure we don't to more than one upload or download during each main
-        #   loop.  Otherwise the message queue gets backed up, and the other servers have to wait a long
-        #   time before they can start processing the individual files.
-        transfer = False
         method, properties, body = channel.basic_get( queue=queue_name, auto_ack=True)
         while body != None:
             routing_key = method.routing_key
@@ -139,11 +136,12 @@ def main():
                             if (args.verbose): minorimpact.fprint(f"{f} done")
             elif (mode == 'upload'):
                 if (re.match('upload', routing_key)):
-                    if (transfer is False):
-                        if (files[f]['state'] == 'new' or (files[f]['state'] == 'uploaded' and files[f]['mod_date'] < (time.time() - 60))):
+                    print(f"upload {f}")
+                    if (transfer is None):
+                        if (files[f]['state'] == 'new' or (files[f]['state'] == 'uploaded' and int(time.time()) - files[f]['mod_date'] > 60)):
+                            # Start the transfer for new files, or files that we finished transferring more than a minute ago.
                             dest_dir = file_data['dir']
                             if (dest_dir is not None and (files[f]['md5'] != md5 or files[f]['size'] != size or files[f]['mtime'] != mtime)):
-                                transfer = True
                                 if (files[f]['state'] == 'uploaded' and files[f]['md5'] != md5):
                                     # It looks like we can sometimes get a bogus md5 when the file is first read, so if central is reporting a different md5,
                                     #   let's just confirm ours.
@@ -154,14 +152,22 @@ def main():
                                 #   completes before starting the next one.
                                 rsync_command = [rsync, '--archive', '--partial', *rsync_opts, f'{file_dir}/{f}', f'{synkler_server}:{dest_dir}/']
                                 if (args.verbose): minorimpact.fprint(' '.join(rsync_command))
-                                return_code = subprocess.call(rsync_command)
-                                if (return_code != 0):
-                                    if (args.verbose): minorimpact.fprint(f" ... FAILED ({return_code})")
-                                    files[f]['state'] = 'churn'
-                                else:
-                                    files[f]['state'] = 'uploaded'
-                                    if (args.verbose): minorimpact.fprint(f" ... DONE")
+                                transfer = { 'file':f, 'command': rsync_command }
+                                transfer['proc'] = subprocess.Popen(rsync_command)
                                 files[f]['mod_date'] = int(time.time())
+                    elif ('file' in transfer and transfer['file'] == f):
+                        if (transfer['proc'].poll() is not None):
+                            if (transfer['proc'].returncode != 0):
+                                if (args.verbose): minorimpact.fprint(f"{f} FAILED ({return_code})")
+                                files[f]['state'] = 'churn'
+                                files[f]['mod_date'] = int(time.time())
+                            else:
+                                files[f]['state'] = 'uploaded'
+                                files[f]['mod_date'] = int(time.time())
+                                if (args.verbose): minorimpact.fprint(f"{f} DONE")
+                            transfer = None
+                        elif (transfer['proc'].poll() is None):
+                            if (args.verbose): minorimpact.fprint(f" still transfering {f}")
                 elif (re.match('done', routing_key)):
                     if (f in files):
                         files[f]['mod_date'] = int(time.time())
@@ -257,10 +263,11 @@ def main():
             elif (mode == 'download'):
                 if (files[f]['state'] == 'done'):
                     if (args.verbose): print(f"channel done.{args.id}: {f}")
-                    channel.basic_publish(exchange='synkler', routing_key='done.' + args.id, body=pickle.dumps(files[f]))
-                    # TODO: should we really only send a single message?  It seems like maybe we ought to spam this a few times, just in
-                    #    case.  Any clients or middlemen can just ignore it if it's not in their list of going concerns.
-                    if ((int(time.time()) - files[f]['mod_date']) > 30):
+                    if ((int(time.time()) - files[f]['mod_date']) < 30):
+                        # Keep sending the 'done' signal until we haven't heard from the upload server for a full 30 seconds.
+                        channel.basic_publish(exchange='synkler', routing_key='done.' + args.id, body=pickle.dumps(files[f]))
+                    else:
+                        # Once we're sure the upload server has done its thing, run the cleanup script and delete the file from the array.
                         if (cleanup_script is not None):
                             command = cleanup_script.split(' ')
                             for i in range(len(command)):
@@ -274,8 +281,8 @@ def main():
                                 if (args.verbose): minorimpact.fprint(f" ... DONE")
                             else:
                                 if (args.verbose): minorimpact.fprint(f" ... FAILED ({return_code})")
-
                         del files[f]
+
         time.sleep(5)
 
     # TODO: Figure out a way to make sure these get called, or get rid of them.
