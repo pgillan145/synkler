@@ -63,6 +63,7 @@ def main():
         channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='new.' + args.id)
     elif mode == 'download':
         channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='download.' + args.id)
+        channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='new.' + args.id)
     elif mode == 'upload':
         channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='done.' + args.id)
         channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='upload.' + args.id)
@@ -218,7 +219,7 @@ def main():
                 if (files[f]['state'] == 'done' and (int(time.time()) - files[f]['mod_date'] > 60)):
                     if (args.verbose): minorimpact.fprint(f"clearing {f}")
                     del files[f]
-                elif (files[f]['state'] == 'upload' and (int(time.time()) - files[f]['mod_date'] < 30)):
+                elif (files[f]['state'] == 'upload' and (int(time.time()) - files[f]['mod_date'] > 30)):
                     # Stop sending an 'upload' signal if we haven't gotten a 'new' message within the last 30 seconds.  Either the
                     #   file no longer exists, or 'upload' is blocking and isn't getting the messages anyway.
                     # TODO: Figure out when it's safe to delete zombie files from the array.
@@ -255,7 +256,7 @@ def main():
                     channel.basic_publish(exchange='synkler', routing_key='done.' + args.id, body=pickle.dumps(files[f]))
                     # TODO: should we really only send a single message?  It seems like maybe we ought to spam this a few times, just in
                     #    case.  Any clients or middlemen can just ignore it if it's not in their list of going concerns.
-                    if ((int(time.time()) - files[f]['mod_date']) < 30):
+                    if ((int(time.time()) - files[f]['mod_date']) > 30):
                         if (cleanup_script is not None):
                             command = cleanup_script.split(' ')
                             for i in range(len(command)):
@@ -270,7 +271,7 @@ def main():
                             else:
                                 if (args.verbose): minorimpact.fprint(f" ... FAILED ({return_code})")
 
-                            del files[f]
+                        del files[f]
         time.sleep(5)
 
     # TODO: Figure out a way to make sure these get called, or get rid of them.
