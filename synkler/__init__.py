@@ -157,7 +157,7 @@ def main():
                                 return_code = subprocess.call(rsync_command)
                                 if (return_code != 0):
                                     if (args.verbose): minorimpact.fprint(f" ... FAILED ({return_code})")
-                                    files[f]['state'] = 'new'
+                                    files[f]['state'] = 'churn'
                                 else:
                                     files[f]['state'] = 'uploaded'
                                     if (args.verbose): minorimpact.fprint(f" ... DONE")
@@ -171,7 +171,7 @@ def main():
                                 if (args.verbose): minorimpact.fprint(f"{f} done")
                             else:
                                 if (args.verbose): minorimpact.fprint(f"ERROR: {f} on final destination doesn't match, resetting state.")
-                                del files[f]
+                                files[f]['state'] = 'churn'
             elif (mode == 'download'):
                  if (re.match('download', routing_key)):
                     file_data = pickle.loads(body)
@@ -223,13 +223,16 @@ def main():
                     # Stop sending an 'upload' signal if we haven't gotten a 'new' message within the last 30 seconds.  Either the
                     #   file no longer exists, or 'upload' is blocking and isn't getting the messages anyway.
                     # TODO: Figure out when it's safe to delete zombie files from the array.
+                    if (args.verbose): print(f"channel upload.{args.id}: {f}")
                     channel.basic_publish(exchange='synkler', routing_key='upload.' + args.id, body=pickle.dumps(files[f], protocol=4))
                 elif (files[f]['state'] == 'download'):
+                    if (args.verbose): print(f"channel download.{args.id}: {f}")
                     channel.basic_publish(exchange='synkler', routing_key='download.' + args.id, body=pickle.dumps(files[f], protocol=4))
             elif (mode == 'upload'):
                 if (files[f]['state'] not in ['churn', 'done']):
                     # TODO: Figure out if I need this.  Is there a fourth state this can be in?
                     if (files[f]['state'] not in ['new', 'uploaded']): minorimpact.fprint(f"{f}:{files[f]['state']}???")
+                    if (args.verbose): print(f"channel new.{args.id}: {f}")
                     channel.basic_publish(exchange='synkler', routing_key='new.' + args.id, body=pickle.dumps(files[f]))
                 elif (files[f]['state'] == 'done'):
                     if (cleanup_script is not None):
@@ -253,6 +256,7 @@ def main():
                     pass
             elif (mode == 'download'):
                 if (files[f]['state'] == 'done'):
+                    if (args.verbose): print(f"channel done.{args.id}: {f}")
                     channel.basic_publish(exchange='synkler', routing_key='done.' + args.id, body=pickle.dumps(files[f]))
                     # TODO: should we really only send a single message?  It seems like maybe we ought to spam this a few times, just in
                     #    case.  Any clients or middlemen can just ignore it if it's not in their list of going concerns.
