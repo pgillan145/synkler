@@ -25,6 +25,7 @@ def main():
     #parser.add_argument('--id', nargs='?', help = "id of a specific synkler group", default='default')
     args = parser.parse_args()
     args.id = "default"
+    if (args.debug): args.verbose = True
 
     config = minorimpact.config.getConfig(config = args.config)
     cleanup_script = config['default']['cleanup_script'] if ('cleanup_script' in config['default']) else None
@@ -91,7 +92,7 @@ def main():
                         files[f]['mod_date'] = int(time.time())
                         if (args.debug): minorimpact.fprint(f"{f} md5:{md5}")
                         if (mode == 'upload'):
-                            if (args.verbose): minorimpact.fprintf(f"new file: {f}")
+                            if (args.verbose): minorimpact.fprint(f"new file: {f}")
                             files[f]['state'] = 'new'
                 else:
                     files[f]['size'] = size
