@@ -222,18 +222,18 @@ def main():
         filenames = [key for key in files]
         for f in filenames:
             if (mode == 'central'):
-                if (files[f]['state'] == 'done' and (int(time.time()) - files[f]['mod_date'] > 60)):
+                if ((int(time.time()) - files[f]['mod_date'] > 300)):
+                    # Regardless of the state, clear the array if we haven't heard from anyone about this file in the last
+                    #   five minutes
                     if (args.verbose): minorimpact.fprint(f"clearing {f}")
                     del files[f]
-                elif (files[f]['state'] == 'upload' and (int(time.time()) - files[f]['mod_date'] > 30)):
-                    # Stop sending an 'upload' signal if we haven't gotten a 'new' message within the last 30 seconds.  Either the
-                    #   file no longer exists, or 'upload' is blocking and isn't getting the messages anyway.
-                    # TODO: Figure out when it's safe to delete zombie files from the array.
-                    if (args.verbose): print(f"channel upload.{args.id}: {f}")
-                    channel.basic_publish(exchange='synkler', routing_key='upload.' + args.id, body=pickle.dumps(files[f], protocol=4))
-                elif (files[f]['state'] == 'download'):
-                    if (args.verbose): print(f"channel download.{args.id}: {f}")
-                    channel.basic_publish(exchange='synkler', routing_key='download.' + args.id, body=pickle.dumps(files[f], protocol=4))
+                elif (int(time.time()) - files[f]['mod_date'] < 30):
+                    if (files[f]['state'] == 'upload'):
+                        if (args.verbose): print(f"channel upload.{args.id}: {f}")
+                        channel.basic_publish(exchange='synkler', routing_key='upload.' + args.id, body=pickle.dumps(files[f], protocol=4))
+                    elif (files[f]['state'] == 'download'):
+                        if (args.verbose): print(f"channel download.{args.id}: {f}")
+                        channel.basic_publish(exchange='synkler', routing_key='download.' + args.id, body=pickle.dumps(files[f], protocol=4))
             elif (mode == 'upload'):
                 if (files[f]['state'] not in ['churn', 'done']):
                     # TODO: Figure out if I need this.  Is there a fourth state this can be in?
