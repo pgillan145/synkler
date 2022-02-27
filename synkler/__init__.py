@@ -241,14 +241,14 @@ def main():
                     del files[f]
                 elif (int(time.time()) - files[f]['mod_date'] < 30):
                     if (files[f]['state'] == 'upload'):
-                        if (args.debug): print(f"channel upload.{args.id}: {f}")
+                        if (args.debug): minorimpact.fprint(f"channel upload.{args.id}: {f}")
                         channel.basic_publish(exchange='synkler', routing_key='upload.' + args.id, body=pickle.dumps(files[f], protocol=4))
                     elif (files[f]['state'] == 'download'):
-                        if (args.debug): print(f"channel download.{args.id}: {f}")
+                        if (args.debug): minoprimpact.fprint(f"channel download.{args.id}: {f}")
                         channel.basic_publish(exchange='synkler', routing_key='download.' + args.id, body=pickle.dumps(files[f], protocol=4))
             elif (mode == 'upload'):
                 if (files[f]['state'] in ('new', 'uploaded')):
-                    if (args.debug): print(f"channel new.{args.id}: {f}")
+                    if (args.debug): minorimpact.fprint(f"channel new.{args.id}: {f}")
                     channel.basic_publish(exchange='synkler', routing_key='new.' + args.id, body=pickle.dumps(files[f]))
                 elif (files[f]['state'] == 'done'):
                     if (cleanup_script is not None):
@@ -274,7 +274,7 @@ def main():
                 if (files[f]['state'] == 'done'):
                     if ((int(time.time()) - files[f]['mod_date']) < 30):
                         # Keep sending the 'done' signal until we haven't heard from the upload server for a full 30 seconds.
-                        if (args.debug): print(f"channel done.{args.id}: {f}")
+                        if (args.debug): minorimpact.fprint(f"channel done.{args.id}: {f}")
                         channel.basic_publish(exchange='synkler', routing_key='done.' + args.id, body=pickle.dumps(files[f]))
                     else:
                         # Once we're sure the upload server has done its thing, run the cleanup script and delete the file from the array.
