@@ -14,7 +14,7 @@ mode = central
 pidfile = /tmp/synkler.pid
 
 # location of the system's rsync command. Required.
-rsync = /usr/bin/env rsync
+rsync = /usr/bin/rsync
 
 # Additional options to pass to rsync, if necessary.  Separate multiple
 #   values by commas.

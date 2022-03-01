@@ -225,9 +225,9 @@ def main():
                             files[f]['mod_date'] = int(time.time())
                  elif (re.match('new', routing_key)):
                     if (args.debug): minorimpact.fprint(f"{f} available")
-                     if (f in files):
-                         files[f]['mod_date'] = int(time.time())
-                         if (files[f]['state'] == 'done' and (files[f]['size'] != size or md5 != files[f]['md5'] or files[f]['mtime'] != mtime)):
+                    if (f in files):
+                        files[f]['mod_date'] = int(time.time())
+                        if (files[f]['state'] == 'done' and (files[f]['size'] != size or md5 != files[f]['md5'] or files[f]['mtime'] != mtime)):
                             del files[f]
                             os.remove(file_dir + '/' + f)
 
