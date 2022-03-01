@@ -176,7 +176,7 @@ def main():
                         elif (transfer['proc'].poll() is None):
                             if (args.debug): minorimpact.fprint(f"{f} upload in process")
                     else:
-                        if (args.debug): minorimpact.fprintf(f"transfer:{transfer}")
+                        if (args.debug): minorimpact.fprint(f"transfer:{transfer}")
                 elif (re.match('done', routing_key)):
                     if (f in files):
                         files[f]['mod_date'] = int(time.time())
