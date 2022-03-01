@@ -159,6 +159,9 @@ def main():
                                 transfer = { 'file':f, 'command': rsync_command }
                                 transfer['proc'] = subprocess.Popen(rsync_command)
                                 files[f]['mod_date'] = int(time.time())
+                        else:
+                            if (args.debug): minorimpact.fprint(f"remote {f}: md5:{md5}, size:{size}, mtime:{mtime}")
+                            if (args.debug): minorimpact.fprint(f" local {f}: {files[f]}")
                     elif ('file' in transfer and transfer['file'] == f):
                         if (transfer['proc'].poll() is not None):
                             if (transfer['proc'].returncode != 0):
@@ -172,6 +175,8 @@ def main():
                             transfer = None
                         elif (transfer['proc'].poll() is None):
                             if (args.debug): minorimpact.fprint(f"{f} upload in process")
+                    else:
+                        if (args.debug): minorimpact.fprintf(f"transfer:{transfer}")
                 elif (re.match('done', routing_key)):
                     if (f in files):
                         files[f]['mod_date'] = int(time.time())
