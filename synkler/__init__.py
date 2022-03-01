@@ -146,13 +146,16 @@ def main():
                     if (args.debug): minorimpact.fprint(f"{f} upload requested")
                     if (transfer is None):
                         if (files[f]['state'] == 'new' or (files[f]['state'] == 'uploaded' and int(time.time()) - files[f]['mod_date'] > 60)):
-                            # Start the transfer for new files, or files that we finished transferring more than a minute ago.
                             dest_dir = file_data['dir']
-                            if (dest_dir is not None and (files[f]['md5'] != md5 or files[f]['size'] != size or files[f]['mtime'] != mtime)):
-                                if (files[f]['state'] == 'uploaded' and files[f]['md5'] != md5):
-                                    # It looks like we can sometimes get a bogus md5 when the file is first read, so if central is reporting a different md5,
-                                    #   let's just confirm ours.
+                            if (dest_dir is None):
+                                print("Error: destination directory is not set by central")
+                            else:
+                                # Start the transfer for new files, or files that we finished transferring more than a minute ago.
+                                if (files[f]['state'] == 'uploaded'):
+                                    # It looks like we can sometimes get a bogus md5 when the file is first read, so if we're
+                                    #   re-uploading a file, let's confirm it.
                                     files[f]['md5'] = minorimpact.md5dir(f'{file_dir}/{f}')
+                                    files[f]['state'] = 'new'
                                 rsync_command = [rsync, '--archive', '--partial', *rsync_opts, f'{file_dir}/{f}', f'{synkler_server}:{dest_dir}/']
                                 if (args.verbose): minorimpact.fprint(f"{f} upload starting")
                                 if (args.debug): minorimpact.fprint(' '.join(rsync_command))
@@ -160,8 +163,7 @@ def main():
                                 transfer['proc'] = subprocess.Popen(rsync_command)
                                 files[f]['mod_date'] = int(time.time())
                         else:
-                            if (args.debug): minorimpact.fprint(f"remote {f}: md5:{md5}, size:{size}, mtime:{mtime}")
-                            if (args.debug): minorimpact.fprint(f" local {f}: {files[f]}")
+                            if (args.verbose): minorimpact.fprint(f"{f} not ready to upload: {files[f]}")
                     elif ('file' in transfer and transfer['file'] == f):
                         if (transfer['proc'].poll() is not None):
                             if (transfer['proc'].returncode != 0):
@@ -174,9 +176,9 @@ def main():
                                 if (args.verbose): minorimpact.fprint(f"{f} upload completed")
                             transfer = None
                         elif (transfer['proc'].poll() is None):
-                            if (args.debug): minorimpact.fprint(f"{f} upload in process")
+                            if (args.debug): minorimpact.fprint(f"{f} upload in progress")
                     else:
-                        if (args.debug): minorimpact.fprint(f"transfer:{transfer}")
+                        if (args.debug): minorimpact.fprint(f"waiting on another transfer")
                 elif (re.match('done', routing_key)):
                     if (f in files):
                         files[f]['mod_date'] = int(time.time())
@@ -222,7 +224,9 @@ def main():
                                     if (args.verbose): minorimpact.fprint(f"{f} download complete")
                                 transfer = None
                             elif (transfer['proc'].poll() is None):
-                                if (args.debug): minorimpact.fprint(f"{f} download in process")
+                                if (args.debug): minorimpact.fprint(f"{f} download in progress")
+                        else:
+                            if (args.debug): minorimpact.fprint(f"waiting on another transfer")
                     else:
                         if (files[f]['state'] != 'done'):
                             if (args.verbose): minorimpact.fprint(f"{f} done")
