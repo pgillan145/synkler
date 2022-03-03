@@ -180,7 +180,9 @@ def main():
                         elif (transfer['proc'].poll() is None):
                             if (args.debug): minorimpact.fprint(f"{f} upload in progress")
                     else:
-                        if (args.debug): minorimpact.fprint(f"waiting on another transfer")
+                        if (args.debug): 
+                            minorimpact.fprint(f"waiting on another transfer")
+                            minorimpact.fprint(f"transfer:{transfer}")
                 elif (re.match('done', routing_key)):
                     if (f in files):
                         files[f]['mod_date'] = int(time.time())
