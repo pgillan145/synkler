@@ -36,6 +36,8 @@ def main():
     rsync = config['default']['rsync'] if ('rsync' in config['default']) else None
     rsync_opts = config['default']['rsync_opts'] if ('rsync_opts' in config['default']) else ''
     rsync_opts = list(csv.reader([rsync_opts]))[0]
+    if ('--checksum' not in rsync_opts):
+        rsync_opts.append('--checksum')
     synkler_server = config['default']['synkler_server'] if ('synkler_server' in config['default']) else None
 
     if (file_dir is None):
@@ -89,10 +91,10 @@ def main():
             if (f in files):
                 if (size == files[f]['size'] and files[f]['mtime'] == mtime):
                     # The file has stopped changing, we can assume it's no longer being written to -- grab the md5sum.
-                    if (files[f]['md5'] is None):
+                    if (files[f]['md5'] is None or files[f]['state'] == 'upload'):
                         md5 = minorimpact.md5dir(f'{file_dir}/{f}')
                         files[f]['md5'] = md5
-                        files[f]['mod_date'] = int(time.time())
+                        #files[f]['mod_date'] = int(time.time())
                         if (args.debug): minorimpact.fprint(f"{f} md5:{md5}")
                         if (mode == 'upload'):
                             if (args.verbose): minorimpact.fprint(f"new file: {f}")
@@ -100,7 +102,7 @@ def main():
                 else:
                     files[f]['size'] = size
                     files[f]['mtime'] = mtime
-                    files[f]['mod_date'] = int(time.time())
+                    #files[f]['mod_date'] = int(time.time())
             else:
                 if (mode == 'central'):
                     # These files are more than 30 minutes old and haven't been reported in, they can be
