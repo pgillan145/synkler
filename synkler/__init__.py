@@ -193,7 +193,7 @@ def main():
                             else:
                                 if (args.verbose): minorimpact.fprint(f"ERROR: {f} on final destination doesn't match, resetting state.")
                                 files[f]['state'] = 'churn'
-                    if ('file' in transfer and transfer['file'] == f):
+                    if (transfer is not None and 'file' in transfer and transfer['file'] == f):
                         transfer = None
             elif (mode == 'download'):
                  if (re.match('download', routing_key)):
