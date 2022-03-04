@@ -232,12 +232,15 @@ def main():
                             elif (transfer['proc'].poll() is None):
                                 if (args.debug): minorimpact.fprint(f"{f} download in progress")
                         else:
-                            if (args.debug): minorimpact.fprint(f"waiting on another transfer")
+                            if (args.verbose): minorimpact.fprint(f"waiting on another transfer")
+                            if (args.debug): minorimpact.fprint(f"{transfer}")
                     else:
                         if (files[f]['state'] != 'done'):
                             if (args.verbose): minorimpact.fprint(f"{f} done")
                             files[f]['state'] = 'done'
                             files[f]['mod_date'] = int(time.time())
+                        if (transfer is not None and 'file' in transfer and transfer['file'] == f):
+                            transfer = None
                  elif (re.match('new', routing_key)):
                     if (args.debug): minorimpact.fprint(f"{f} available")
                     if (f in files):
