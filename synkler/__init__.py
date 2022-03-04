@@ -130,11 +130,11 @@ def main():
                     if (f not in files):
                         # TODO: Don't just blindly upload everything, set the state to 'new' then verify that we've got space for it
                         #   before setting the state to 'upload'.
-                        if (args.verbose): minorimpact.fprint(f"{f} requested")
+                        if (args.verbose): minorimpact.fprint(f"{f} ready for upload")
                         files[f] = {'filename':f, 'dir':file_dir, 'size':0, 'mtime':None, 'md5':None, 'state':'upload'}
                     elif (files[f]['size'] == size and files[f]['mtime'] == mtime and files[f]['md5'] == md5):
                         if (files[f]['state'] == 'upload'):
-                            if (args.verbose): minorimpact.fprint(f"{f} available")
+                            if (args.verbose): minorimpact.fprint(f"{f} ready for download")
                             files[f]['state'] = 'download'
                     files[f]['mod_date'] = int(time.time())
                 elif (re.match('done', routing_key)):
@@ -165,7 +165,7 @@ def main():
                                 transfer['proc'] = subprocess.Popen(rsync_command)
                                 files[f]['mod_date'] = int(time.time())
                         else:
-                            if (args.verbose): minorimpact.fprint(f"{f} not ready to upload: {files[f]}")
+                            if (args.verbose): minorimpact.fprint(f"{f} not ready to upload")
                     elif ('file' in transfer and transfer['file'] == f):
                         if (transfer['proc'].poll() is not None):
                             if (transfer['proc'].returncode != 0):
@@ -193,6 +193,8 @@ def main():
                             else:
                                 if (args.verbose): minorimpact.fprint(f"ERROR: {f} on final destination doesn't match, resetting state.")
                                 files[f]['state'] = 'churn'
+                    if ('file' in transfer and transfer['file'] == f):
+                        transfer = None
             elif (mode == 'download'):
                  if (re.match('download', routing_key)):
                     file_data = pickle.loads(body)
