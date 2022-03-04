@@ -252,6 +252,9 @@ def main():
             # Get the next item from queue.
             method, properties, body = channel.basic_get( queue=queue_name, auto_ack=True)
 
+        if (transfer is not None and 'file' in transfer and transfer['file'] not in files):
+            transfer = None
+
         # Go through all the items in our internal status array and do what needs doing.
         filenames = [key for key in files]
         for f in filenames:
