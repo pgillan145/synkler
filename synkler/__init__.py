@@ -36,8 +36,8 @@ def main():
     rsync = config['default']['rsync'] if ('rsync' in config['default']) else None
     rsync_opts = config['default']['rsync_opts'] if ('rsync_opts' in config['default']) else ''
     rsync_opts = list(csv.reader([rsync_opts]))[0]
-    if ('--checksum' not in rsync_opts):
-        rsync_opts.append('--checksum')
+    if ('--checksum' not in rsync_opts): rsync_opts.append('--checksum')
+    if ('--partial' not in rsync_opts): rsync_opts.append('--partial')
     synkler_server = config['default']['synkler_server'] if ('synkler_server' in config['default']) else None
 
     if (file_dir is None):
@@ -232,8 +232,7 @@ def main():
                             elif (transfer['proc'].poll() is None):
                                 if (args.debug): minorimpact.fprint(f"{f} download in progress")
                         else:
-                            if (args.verbose): minorimpact.fprint(f"waiting on another transfer")
-                            if (args.debug): minorimpact.fprint(f"{transfer}")
+                            if (args.debug): minorimpact.fprint(f"waiting on another transfer {transfer['file']}")
                     else:
                         if (files[f]['state'] != 'done'):
                             if (args.verbose): minorimpact.fprint(f"{f} done")
