@@ -64,7 +64,6 @@ Also remember to disable the cron, of course, if that's how you were starting it
 ## To Do
 Major pieces that still need to be added, fixed or investigated:
 - probably need to be able to specify a port number for rabbitmq.
-- very large files cause the connection to rabbitmq to timeout, and then the running synkler instance crashes.  Everything still works, since the messages are still in the queue and rsync resumes from where it left off, but it's still dumb.
 - needs the option of running it as a service rather than a jenky-ass cron.
 - documentashun shud be gooder
 - no way to see the overall status of files in the system.
