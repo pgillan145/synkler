@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 
-__version__ = "0.0.5"
+__version__ = "0.0.6"
 
 def main():
     parser = argparse.ArgumentParser(description="Synkler")
@@ -150,7 +150,7 @@ def main():
                         if (files[f]['state'] == 'new' or (files[f]['state'] == 'uploaded' and int(time.time()) - files[f]['mod_date'] > 60)):
                             dest_dir = file_data['dir']
                             if (dest_dir is None):
-                                print("Error: destination directory is not set by central")
+                                minorimpact.fprintf("{f} upload failed:  destination directory is not set by central")
                             else:
                                 # Start the transfer for new files, or files that we finished transferring more than a minute ago.
                                 if (files[f]['state'] == 'uploaded'):
@@ -158,18 +158,20 @@ def main():
                                     #   re-uploading a file, let's confirm it.
                                     files[f]['md5'] = minorimpact.md5dir(f'{file_dir}/{f}')
                                     files[f]['state'] = 'new'
+                                    if (args.verbose): minorimpact.fprint(f"{f} upload re-starting")
+                                else:
+                                    if (args.verbose): minorimpact.fprint(f"{f} upload starting")
                                 rsync_command = [rsync, '--archive', '--partial', *rsync_opts, f'{file_dir}/{f}', f'{synkler_server}:{dest_dir}/']
-                                if (args.verbose): minorimpact.fprint(f"{f} upload starting")
                                 if (args.debug): minorimpact.fprint(' '.join(rsync_command))
                                 transfer = { 'file':f, 'command': rsync_command }
                                 transfer['proc'] = subprocess.Popen(rsync_command)
                                 files[f]['mod_date'] = int(time.time())
                         else:
-                            if (args.verbose): minorimpact.fprint(f"{f} not ready to upload")
+                            if (args.debug): minorimpact.fprint(f"{f} not ready to upload")
                     elif ('file' in transfer and transfer['file'] == f):
                         if (transfer['proc'].poll() is not None):
                             if (transfer['proc'].returncode != 0):
-                                if (args.verbose): minorimpact.fprint(f"{f} upload failed, return code: {return_code}")
+                                minorimpact.fprint(f"{f} upload failed, return code: {return_code}")
                                 files[f]['state'] = 'churn'
                                 files[f]['mod_date'] = int(time.time())
                             else:
@@ -180,9 +182,7 @@ def main():
                         elif (transfer['proc'].poll() is None):
                             if (args.debug): minorimpact.fprint(f"{f} upload in progress")
                     else:
-                        if (args.debug): 
-                            minorimpact.fprint(f"waiting on another transfer")
-                            minorimpact.fprint(f"transfer:{transfer}")
+                        if (args.debug): minorimpact.fprint(f"waiting on another transfer: {transfer['file']}")
                 elif (re.match('done', routing_key)):
                     if (f in files):
                         files[f]['mod_date'] = int(time.time())
@@ -283,7 +283,7 @@ def main():
                         if (args.verbose): minorimpact.fprint("running cleanup script:" + ' '.join(command))
                         return_code = subprocess.call(command)
                         if (return_code != 0):
-                            if (args.verbose): minorimpact.fprint(f" ... FAILED: {return_code}")
+                            minorimpact.fprint(f"{f} cleanup script failed: {return_code}")
                         else:
                             if (args.verbose): minorimpact.fprint(" ... done")
                             # Since the file no longer lives in the download directory, delete it from the internal
@@ -312,7 +312,7 @@ def main():
                             if (return_code == 0):
                                 if (args.verbose): minorimpact.fprint(f" ... done")
                             else:
-                                if (args.verbose): minorimpact.fprint(f" ... FAILED: {return_code}")
+                                minorimpact.fprint(f"{f} cleanup script failed: {return_code}")
                         del files[f]
 
         time.sleep(5)
