@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 
-__version__ = "0.0.6"
+__version__ = "0.0.7"
 
 def main():
     parser = argparse.ArgumentParser(description="Synkler")
@@ -41,13 +41,13 @@ def main():
     synkler_server = config['default']['synkler_server'] if ('synkler_server' in config['default']) else None
 
     if (file_dir is None):
-        sys.exit(f"'file_dir' is not set")
+        sys.exit("'file_dir' is not set")
     if (os.path.exists(file_dir) is False):
-        sys.exit(f"'{file_dir}' does not exist.")
+        sys.exit("'{}' does not exist.".format(file_dir))
     if (synkler_server is None):
-        sys.exit(f"'synkler_server' is not set")
+        sys.exit("'synkler_server' is not set")
     if (rsync is None and mode != 'central'):
-        sys.exit(f"'rsync' is not set")
+        sys.exit("'rsync' is not set")
 
     if (pidfile is not None and minorimpact.checkforduplicates(pidfile)):
         # TODO: if we run it from the command line, we want some indicator as to why it didn't run, but as a cron
@@ -66,7 +66,7 @@ def main():
         channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='done.' + args.id)
         channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='new.' + args.id)
         file_dir = file_dir + '/' + args.id
-        os.makedirs(f'{file_dir}', exist_ok=True)
+        os.makedirs(file_dir, exist_ok=True)
     elif mode == 'download':
         channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='download.' + args.id)
         channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='new.' + args.id)
@@ -74,7 +74,7 @@ def main():
         channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='done.' + args.id)
         channel.queue_bind(exchange='synkler', queue=queue_name, routing_key='upload.' + args.id)
     else:
-        sys.exit(f"'mode' must be 'upload','central', or 'download'")
+        sys.exit("'mode' must be 'upload','central', or 'download'")
 
     start_time = int(time.time())
 
@@ -92,12 +92,12 @@ def main():
                 if (size == files[f]['size'] and files[f]['mtime'] == mtime):
                     # The file has stopped changing, we can assume it's no longer being written to -- grab the md5sum.
                     if (files[f]['md5'] is None or files[f]['state'] == 'upload'):
-                        md5 = minorimpact.md5dir(f'{file_dir}/{f}')
+                        md5 = minorimpact.md5dir('{}/{}'.format(file_dir, f))
                         files[f]['md5'] = md5
                         #files[f]['mod_date'] = int(time.time())
-                        if (args.debug): minorimpact.fprint(f"{f} md5:{md5}")
+                        if (args.debug): minorimpact.fprint("{} md5:{}".format(f, md5))
                         if (mode == 'upload'):
-                            if (args.verbose): minorimpact.fprint(f"new file: {f}")
+                            if (args.verbose): minorimpact.fprint("new file: {}".format(f))
                             files[f]['state'] = 'new'
                 else:
                     files[f]['size'] = size
@@ -108,7 +108,7 @@ def main():
                     # These files are more than 30 minutes old and haven't been reported in, they can be
                     #   axed.
                     if (int(time.time()) - start_time > (keep_minutes * 60) and int(time.time()) - mtime > (keep_minutes * 60)):
-                        if (args.verbose): minorimpact.fprint(f"deleting {file_dir}/{f}")
+                        if (args.verbose): minorimpact.fprint("deleting {}/{}".format(file_dir, f))
                         if (os.path.isdir(file_dir + '/' + f)):
                             shutil.rmtree(file_dir + '/' + f)
                         else:
@@ -130,11 +130,11 @@ def main():
                     if (f not in files):
                         # TODO: Don't just blindly upload everything, set the state to 'new' then verify that we've got space for it
                         #   before setting the state to 'upload'.
-                        if (args.verbose): minorimpact.fprint(f"{f} ready for upload")
+                        if (args.verbose): minorimpact.fprint("{} ready for upload".format(f))
                         files[f] = {'filename':f, 'dir':file_dir, 'size':0, 'mtime':None, 'md5':None, 'state':'upload'}
                     elif (files[f]['size'] == size and files[f]['mtime'] == mtime and files[f]['md5'] == md5):
                         if (files[f]['state'] == 'upload'):
-                            if (args.verbose): minorimpact.fprint(f"{f} ready for download")
+                            if (args.verbose): minorimpact.fprint("{} ready for download".format(f))
                             files[f]['state'] = 'download'
                     files[f]['mod_date'] = int(time.time())
                 elif (re.match('done', routing_key)):
@@ -142,10 +142,10 @@ def main():
                         if (files[f]['state'] != 'done'):
                             files[f]['state'] = 'done'
                             files[f]['mod_date'] = int(time.time())
-                            if (args.verbose): minorimpact.fprint(f"{f} done")
+                            if (args.verbose): minorimpact.fprint("{} done".format(f))
             elif (mode == 'upload'):
                 if (re.match('upload', routing_key)):
-                    if (args.debug): minorimpact.fprint(f"{f} upload requested")
+                    if (args.debug): minorimpact.fprint("{} upload requested".format(f))
                     if (transfer is None):
                         if (files[f]['state'] == 'new' or (files[f]['state'] == 'uploaded' and int(time.time()) - files[f]['mod_date'] > 60)):
                             dest_dir = file_data['dir']
@@ -156,42 +156,42 @@ def main():
                                 if (files[f]['state'] == 'uploaded'):
                                     # It looks like we can sometimes get a bogus md5 when the file is first read, so if we're
                                     #   re-uploading a file, let's confirm it.
-                                    files[f]['md5'] = minorimpact.md5dir(f'{file_dir}/{f}')
+                                    files[f]['md5'] = minorimpact.md5dir('{}/{}'.format(file_dir, f))
                                     files[f]['state'] = 'new'
-                                    if (args.verbose): minorimpact.fprint(f"{f} upload re-starting")
+                                    if (args.verbose): minorimpact.fprint("{} upload re-starting".format(f))
                                 else:
-                                    if (args.verbose): minorimpact.fprint(f"{f} upload starting")
-                                rsync_command = [rsync, '--archive', '--partial', *rsync_opts, f'{file_dir}/{f}', f'{synkler_server}:{dest_dir}/']
+                                    if (args.verbose): minorimpact.fprint("{} upload starting".format(f))
+                                rsync_command = [rsync, '--archive', '--partial', *rsync_opts, '{}/{}'.format(file_dir, f), '{}:{}/'.format(synkler_server, dest_dir)]
                                 if (args.debug): minorimpact.fprint(' '.join(rsync_command))
                                 transfer = { 'file':f, 'command': rsync_command }
                                 transfer['proc'] = subprocess.Popen(rsync_command)
                                 files[f]['mod_date'] = int(time.time())
                         else:
-                            if (args.debug): minorimpact.fprint(f"{f} not ready to upload")
+                            if (args.debug): minorimpact.fprint("{} not ready to upload".format(f))
                     elif ('file' in transfer and transfer['file'] == f):
                         if (transfer['proc'].poll() is not None):
                             if (transfer['proc'].returncode != 0):
-                                minorimpact.fprint(f"{f} upload failed, return code: {return_code}")
+                                minorimpact.fprint("{} upload failed, return code: {}".format(f, return_code))
                                 files[f]['state'] = 'churn'
                                 files[f]['mod_date'] = int(time.time())
                             else:
                                 files[f]['state'] = 'uploaded'
                                 files[f]['mod_date'] = int(time.time())
-                                if (args.verbose): minorimpact.fprint(f"{f} upload completed")
+                                if (args.verbose): minorimpact.fprint("{} upload completed".format(f))
                             transfer = None
                         elif (transfer['proc'].poll() is None):
-                            if (args.debug): minorimpact.fprint(f"{f} upload in progress")
+                            if (args.debug): minorimpact.fprint("{} upload in progress".format(f))
                     else:
-                        if (args.debug): minorimpact.fprint(f"waiting on another transfer: {transfer['file']}")
+                        if (args.debug): minorimpact.fprint("waiting on another transfer: {}".format(transfer['file']))
                 elif (re.match('done', routing_key)):
                     if (f in files):
                         files[f]['mod_date'] = int(time.time())
                         if (files[f]['state'] != 'done'):
                             if files[f]['md5'] == md5 and files[f]['size'] == size and files[f]["mtime"] == mtime:
                                 files[f]['state'] = 'done'
-                                if (args.verbose): minorimpact.fprint(f"{f} done")
+                                if (args.verbose): minorimpact.fprint("{} done".format(f))
                             else:
-                                if (args.verbose): minorimpact.fprint(f"ERROR: {f} on final destination doesn't match, resetting state.")
+                                if (args.verbose): minorimpact.fprint("ERROR: {} on final destination doesn't match, resetting state.".format(f))
                                 files[f]['state'] = 'churn'
                     if (transfer is not None and 'file' in transfer and transfer['file'] == f):
                         transfer = None
@@ -204,15 +204,15 @@ def main():
                     size = file_data['size']
                     mtime = file_data['mtime']
 
-                    if (args.debug): minorimpact.fprint(f"{f} download requested")
+                    if (args.debug): minorimpact.fprint("{} download requested".format(f))
                     if (f not in files):
                         if (args.debug): minorimpact.fprint(file_data)
                         files[f]  = {'filename':f, 'size':0, 'md5':None, 'mtime':0, 'dir':file_dir, 'state':'download', 'mod_date':int(time.time()) }
 
                     if (files[f]['size'] != size or md5 != files[f]['md5'] or files[f]['mtime'] != mtime):
                         if (transfer is None):
-                            rsync_command = [rsync, '--archive', '--partial', *rsync_opts, f'{synkler_server}:"{dir}/{f}"', f'{file_dir}/']
-                            if (args.verbose): minorimpact.fprint(f"{f} download starting")
+                            rsync_command = [rsync, '--archive', '--partial', *rsync_opts, '{}:"{}/{}"'.format(synkler_server, dir, f), file_dir + '/']
+                            if (args.verbose): minorimpact.fprint("{} download starting".format(f))
                             if (args.debug): minorimpact.fprint(' '.join(rsync_command))
                             transfer = { 'file': f, 'command': rsync_command }
                             transfer['proc'] = subprocess.Popen(rsync_command)
@@ -220,28 +220,28 @@ def main():
                         elif ('file' in transfer and transfer['file'] == f):
                             if (transfer['proc'].poll() is not None):
                                 if (transfer['proc'].returncode != 0):
-                                    if (args.verbose): minorimpact.fprint(f"{f} download failed, return code: {return_code}")
+                                    if (args.verbose): minorimpact.fprint("{} download failed, return code: {}".format(f, return_code))
                                     files[f]['mod_date'] = int(time.time())
                                 else:
                                     files[f]['size'] = minorimpact.dirsize(file_dir + '/' + f)
                                     files[f]['mtime'] = os.path.getmtime(file_dir + '/' + f)
                                     files[f]['md5'] = minorimpact.md5dir(file_dir + '/' + f)
                                     files[f]['mod_date'] = int(time.time())
-                                    if (args.verbose): minorimpact.fprint(f"{f} download complete")
+                                    if (args.verbose): minorimpact.fprint("{} download complete".format(f))
                                 transfer = None
                             elif (transfer['proc'].poll() is None):
-                                if (args.debug): minorimpact.fprint(f"{f} download in progress")
+                                if (args.debug): minorimpact.fprint("{} download in progress".format(f))
                         else:
-                            if (args.debug): minorimpact.fprint(f"waiting on another transfer {transfer['file']}")
+                            if (args.debug): minorimpact.fprint("waiting on another transfer {}".format(transfer['file']))
                     else:
                         if (files[f]['state'] != 'done'):
-                            if (args.verbose): minorimpact.fprint(f"{f} done")
+                            if (args.verbose): minorimpact.fprint("{} done".format(f))
                             files[f]['state'] = 'done'
                             files[f]['mod_date'] = int(time.time())
                         if (transfer is not None and 'file' in transfer and transfer['file'] == f):
                             transfer = None
                  elif (re.match('new', routing_key)):
-                    if (args.debug): minorimpact.fprint(f"{f} available")
+                    if (args.debug): minorimpact.fprint("{} available".format(f))
                     if (f in files):
                         files[f]['mod_date'] = int(time.time())
                         if (files[f]['state'] == 'done' and (files[f]['size'] != size or md5 != files[f]['md5'] or files[f]['mtime'] != mtime)):
@@ -261,18 +261,18 @@ def main():
                 if ((int(time.time()) - files[f]['mod_date'] > 300)):
                     # Regardless of the state, clear the array if we haven't heard from anyone about this file in the last
                     #   five minutes
-                    if (args.debug): minorimpact.fprint(f"clearing {f}")
+                    if (args.debug): minorimpact.fprint("clearing {}".format(f))
                     del files[f]
                 elif (int(time.time()) - files[f]['mod_date'] < 30):
                     if (files[f]['state'] == 'upload'):
-                        if (args.debug): minorimpact.fprint(f"write {f} to channel upload.{args.id}")
+                        if (args.debug): minorimpact.fprint("write {} to channel upload.{}".format(f, args.id))
                         channel.basic_publish(exchange='synkler', routing_key='upload.' + args.id, body=pickle.dumps(files[f], protocol=4))
                     elif (files[f]['state'] == 'download'):
-                        if (args.debug): minorimpact.fprint(f"write {f} to channel download.{args.id}")
+                        if (args.debug): minorimpact.fprint("write {} to channel download.{}".format(f, args.id))
                         channel.basic_publish(exchange='synkler', routing_key='download.' + args.id, body=pickle.dumps(files[f], protocol=4))
             elif (mode == 'upload'):
                 if (files[f]['state'] in ('new', 'uploaded')):
-                    if (args.debug): minorimpact.fprint(f"write {f} to channel new.{args.id}")
+                    if (args.debug): minorimpact.fprint("write {} to channel new.{}".format(f, args.id))
                     channel.basic_publish(exchange='synkler', routing_key='new.' + args.id, body=pickle.dumps(files[f]))
                 elif (files[f]['state'] == 'done'):
                     if (cleanup_script is not None):
@@ -285,7 +285,7 @@ def main():
                         if (args.verbose): minorimpact.fprint("running cleanup script:" + ' '.join(command))
                         return_code = subprocess.call(command)
                         if (return_code != 0):
-                            minorimpact.fprint(f"{f} cleanup script failed: {return_code}")
+                            minorimpact.fprint("{} cleanup script failed: {}".format(f, return_code))
                         else:
                             if (args.verbose): minorimpact.fprint(" ... done")
                             # Since the file no longer lives in the download directory, delete it from the internal
@@ -298,7 +298,7 @@ def main():
                 if (files[f]['state'] == 'done'):
                     if ((int(time.time()) - files[f]['mod_date']) < 30):
                         # Keep sending the 'done' signal until we haven't heard from the upload server for a full 30 seconds.
-                        if (args.debug): minorimpact.fprint(f"write {f} to channel done.{args.id}")
+                        if (args.debug): minorimpact.fprint("write {} to channel done.{}".format(f, args.id))
                         channel.basic_publish(exchange='synkler', routing_key='done.' + args.id, body=pickle.dumps(files[f]))
                     else:
                         # Once we're sure the upload server has done its thing, run the cleanup script and delete the file from the array.
@@ -312,9 +312,9 @@ def main():
                             if (args.verbose): minorimpact.fprint("running cleanup script:" + ' '.join(command))
                             return_code = subprocess.call(command)
                             if (return_code == 0):
-                                if (args.verbose): minorimpact.fprint(f" ... done")
+                                if (args.verbose): minorimpact.fprint(" ... done")
                             else:
-                                minorimpact.fprint(f"{f} cleanup script failed: {return_code}")
+                                minorimpact.fprint("{} cleanup script failed: {}".format(f, return_code))
                         del files[f]
 
         time.sleep(5)
