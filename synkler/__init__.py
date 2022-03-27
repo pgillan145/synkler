@@ -38,6 +38,7 @@ def main():
     rsync_opts = list(csv.reader([rsync_opts]))[0]
     if ('--checksum' not in rsync_opts): rsync_opts.append('--checksum')
     if ('--partial' not in rsync_opts): rsync_opts.append('--partial')
+    if ('--delete-before' not in rsync_opts): rsync_opts.append('--delete-before')
     synkler_server = config['default']['synkler_server'] if ('synkler_server' in config['default']) else None
 
     if (file_dir is None):
