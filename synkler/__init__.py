@@ -144,7 +144,7 @@ def main():
                             files[f]['state'] = 'done'
                             files[f]['mod_date'] = int(time.time())
                             if (args.verbose): minorimpact.fprint("{} done".format(f))
-            elif (mode == 'upload'):
+            elif (mode == 'upload' and f in files):
                 if (re.match('upload', routing_key)):
                     if (args.debug): minorimpact.fprint("{} upload requested".format(f))
                     if (transfer is None):
