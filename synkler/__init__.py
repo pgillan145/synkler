@@ -220,7 +220,8 @@ def main():
                             files[f]['mod_date'] = int(time.time())
                         elif ('file' in transfer and transfer['file'] == f):
                             if (transfer['proc'].poll() is not None):
-                                if (transfer['proc'].returncode != 0):
+                                return_code = transfer['proc'].returncode
+                                if (return_code != 0):
                                     if (args.verbose): minorimpact.fprint("{} download failed, return code: {}".format(f, return_code))
                                     files[f]['mod_date'] = int(time.time())
                                 else:
