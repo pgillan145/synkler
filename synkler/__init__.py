@@ -172,7 +172,7 @@ def main():
                     elif ('file' in transfer and transfer['file'] == f):
                         if (transfer['proc'].poll() is not None):
                             if (transfer['proc'].returncode != 0):
-                                minorimpact.fprint("{} upload failed, return code: {}".format(f, return_code))
+                                minorimpact.fprint("{} upload failed, return code: {}".format(f, transfer['proc'].returncode))
                                 files[f]['state'] = 'churn'
                                 files[f]['mod_date'] = int(time.time())
                             else:
