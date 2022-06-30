@@ -212,7 +212,7 @@ def main():
 
                     if (files[f]['size'] != size or md5 != files[f]['md5'] or files[f]['mtime'] != mtime):
                         if (transfer is None):
-                            rsync_command = [rsync, '--archive', '--partial', *rsync_opts, '{}:"{}/{}"'.format(synkler_server, dir, f), file_dir + '/']
+                            rsync_command = [rsync, '--archive', '--partial', *rsync_opts, '{}:{}/{}'.format(synkler_server, dir, f), file_dir + '/']
                             if (args.verbose): minorimpact.fprint("{} download starting".format(f))
                             if (args.debug): minorimpact.fprint(' '.join(rsync_command))
                             transfer = { 'file': f, 'command': rsync_command }
@@ -223,6 +223,7 @@ def main():
                                 return_code = transfer['proc'].returncode
                                 if (return_code != 0):
                                     if (args.verbose): minorimpact.fprint("{} download failed, return code: {}".format(f, return_code))
+                                    if (args.debug): minorimpact.fprint(transfer['proc'].args)
                                     files[f]['mod_date'] = int(time.time())
                                 else:
                                     files[f]['size'] = minorimpact.dirsize(file_dir + '/' + f)
