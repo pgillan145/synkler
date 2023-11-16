@@ -129,15 +129,24 @@ def main():
             if (mode == 'central'):
                 if (re.match('new', routing_key)):
                     if (f not in files):
-                        # TODO: Don't just blindly upload everything, set the state to 'new' then verify that we've got space for it
-                        #   before setting the state to 'upload'.
-                        if (args.verbose): minorimpact.fprint("{} ready for upload".format(f))
-                        files[f] = {'filename':f, 'dir':file_dir, 'size':0, 'mtime':None, 'md5':None, 'state':'upload'}
+                        # Figure out out if there's enough space left on '/' to take the file and still have the specified reserve.
+                        free_percent = 5
+                        if ( 'free_percent' in config['default']):
+                            free_percent = int(config['default']['free_percent'])
+                        total, used, free = shutil.disk_usage('/')
+                        target_free = total * (free_percent/100)
+                        if ((free - size) > target_free):
+                            if (args.verbose): minorimpact.fprint("{} ready for upload ({} remaining)".format(f, minorimpact.filesize(free - size)))
+                            files[f] = {'filename':f, 'dir':file_dir, 'size':0, 'mtime':None, 'md5':None, 'state':'upload'}
+                        else:
+                            if (args.verbose): minorimpact.fprint("Not enough free space to receive {} ({} < {} remaining)".format(f, minorimpact.filesize(free - size), minorimpact.filesize(target_free)))
                     elif (files[f]['size'] == size and files[f]['mtime'] == mtime and files[f]['md5'] == md5):
                         if (files[f]['state'] == 'upload'):
                             if (args.verbose): minorimpact.fprint("{} ready for download".format(f))
                             files[f]['state'] = 'download'
-                    files[f]['mod_date'] = int(time.time())
+
+                    if (f in files):
+                        files[f]['mod_date'] = int(time.time())
                 elif (re.match('done', routing_key)):
                     if (f in files):
                         if (files[f]['state'] != 'done'):
