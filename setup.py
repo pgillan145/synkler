@@ -13,7 +13,7 @@ setup(
     author="Patrick Gillan",
     author_email = "pgillan@minorimpact.com",
     entry_points = { "console_scripts": [ "synkler = synkler:main" ] },
-    install_requires=['minorimpact', 'pika'],
+    install_requires=['minorimpact', 'pika', 'psutil'],
     license='GPLv3',
     long_description = readme,
     long_description_content_type = "text/markdown",

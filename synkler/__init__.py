@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 
-__version__ = "0.0.7"
+__version__ = "0.0.8"
 
 def main():
     parser = argparse.ArgumentParser(description="Synkler")
@@ -130,9 +130,12 @@ def main():
                 if (re.match('new', routing_key)):
                     if (f not in files):
                         # Figure out out if there's enough space left on '/' to take the file and still have the specified reserve.
+                        # TODO: This doesn't take into account the size of any files currently being transfered.  "free" really needs to represent the amount of free
+                        #   space + the total size of everything in where state == 'upload' -- not just the file we're evaluating.
                         free_percent = 5
                         if ( 'free_percent' in config['default']):
                             free_percent = int(config['default']['free_percent'])
+                        # TODO: The disk we check needs to be based on 'file_dir', which is probably someplace other than '/'.
                         total, used, free = shutil.disk_usage('/')
                         target_free = total * (free_percent/100)
                         if ((free - size) > target_free):
