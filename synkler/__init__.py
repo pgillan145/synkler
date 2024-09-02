@@ -294,9 +294,9 @@ def main():
                         command = cleanup_script.split(' ')
                         for i in range(len(command)):
                             if command[i] == '%f':
-                                command[i] = f
+                                command[i] = f'{f}'
                             elif command[i] == '%F':
-                                command[i] = file_dir + '/' + f
+                                command[i] = f'{file_dir}/{f}'
                         if (args.verbose): minorimpact.fprint("running cleanup script:" + ' '.join(command))
                         return_code = subprocess.call(command)
                         if (return_code != 0):
