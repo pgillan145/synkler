@@ -84,7 +84,7 @@ def main():
     while (True):
         # Look at any local files and do what needs doing.
         for f in os.listdir(file_dir):
-            if (re.search('^\.', f)):
+            if (re.search('^\\.', f)):
                 continue
 
             mtime = os.path.getmtime(file_dir + '/' + f)
