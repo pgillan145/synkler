@@ -13,9 +13,10 @@ import re
 import shutil
 import subprocess
 import sys
+from threading import Thread, Event
 import time
 
-__version__ = "0.0.8"
+__version__ = "0.0.9"
 
 def main():
     parser = argparse.ArgumentParser(description="Synkler")
@@ -80,45 +81,19 @@ def main():
     start_time = int(time.time())
 
     files = {}
+
+    kill = Event()
+
+    scan_folder_thread = None
+    try:
+        scan_folder_thread = Thread(target=scan_folder, name='scan_folder', args=[file_dir, mode, files, kill], kwargs={'verbose':args.verbose, 'debug':args.debug})
+        scan_folder_thread.start()
+    except:
+        sys.exit("Error starting threads")
+
     transfer = None
     while (True):
-        # Look at any local files and do what needs doing.
-        for f in os.listdir(file_dir):
-            if (re.search('^\\.', f)):
-                continue
-
-            mtime = os.path.getmtime(file_dir + '/' + f)
-            size = minorimpact.dirsize(file_dir + '/' + f)
-            if (f in files):
-                if (size == files[f]['size'] and files[f]['mtime'] == mtime):
-                    # The file has stopped changing, we can assume it's no longer being written to -- grab the md5sum.
-                    if (files[f]['md5'] is None or files[f]['state'] == 'upload'):
-                        md5 = minorimpact.md5dir('{}/{}'.format(file_dir, f))
-                        files[f]['md5'] = md5
-                        #files[f]['mod_date'] = int(time.time())
-                        if (args.debug): minorimpact.fprint("{} md5:{}".format(f, md5))
-                        if (mode == 'upload'):
-                            if (args.verbose): minorimpact.fprint("new file: {}".format(f))
-                            files[f]['state'] = 'new'
-                else:
-                    files[f]['size'] = size
-                    files[f]['mtime'] = mtime
-                    #files[f]['mod_date'] = int(time.time())
-            else:
-                if (mode == 'central'):
-                    # These files are more than 30 minutes old and haven't been reported in, they can be
-                    #   axed.
-                    if (int(time.time()) - start_time > (keep_minutes * 60) and int(time.time()) - mtime > (keep_minutes * 60)):
-                        if (args.verbose): minorimpact.fprint("deleting {}/{}".format(file_dir, f))
-                        if (os.path.isdir(file_dir + '/' + f)):
-                            shutil.rmtree(file_dir + '/' + f)
-                        else:
-                            os.remove(file_dir + '/' + f)
-                elif (mode == 'upload'):
-                    files[f] = {'filename':f, 'pickle_protocol':4, 'mtime':mtime, 'size':size, 'state':'churn', 'md5':None, 'dir':file_dir, 'mod_date':int(time.time()) }
-
-        # Look at any items in the queue and do what needs doing.
-        method, properties, body = channel.basic_get( queue=queue_name, auto_ack=True)
+        method, properties, body = channel.basic_get(queue = queue_name, auto_ack = True)
         while body != None:
             routing_key = method.routing_key
             file_data = pickle.loads(body)
@@ -264,7 +239,7 @@ def main():
                             os.remove(file_dir + '/' + f)
 
             # Get the next item from queue.
-            method, properties, body = channel.basic_get( queue=queue_name, auto_ack=True)
+            method, properties, body = channel.basic_get(queue = queue_name, auto_ack = True)
 
         if (transfer is not None and 'file' in transfer and transfer['file'] not in files):
             transfer = None
@@ -276,18 +251,18 @@ def main():
                 if ((int(time.time()) - files[f]['mod_date'] > 300)):
                     # Regardless of the state, clear the array if we haven't heard from anyone about this file in the last
                     #   five minutes
-                    if (args.debug): minorimpact.fprint("clearing {}".format(f))
+                    if (args.debug): minorimpact.fprint(f"clearing {f}")
                     del files[f]
                 elif (int(time.time()) - files[f]['mod_date'] < 30):
                     if (files[f]['state'] == 'upload'):
-                        if (args.debug): minorimpact.fprint("write {} to channel upload.{}".format(f, args.id))
+                        if (args.debug): minorimpact.fprint(f"write {f} to channel upload.{args.id}")
                         channel.basic_publish(exchange='synkler', routing_key='upload.' + args.id, body=pickle.dumps(files[f], protocol=4))
                     elif (files[f]['state'] == 'download'):
-                        if (args.debug): minorimpact.fprint("write {} to channel download.{}".format(f, args.id))
+                        if (args.debug): minorimpact.fprint(f"write {f} to channel download.{args.id}")
                         channel.basic_publish(exchange='synkler', routing_key='download.' + args.id, body=pickle.dumps(files[f], protocol=4))
             elif (mode == 'upload'):
                 if (files[f]['state'] in ('new', 'uploaded')):
-                    if (args.debug): minorimpact.fprint("write {} to channel new.{}".format(f, args.id))
+                    if (args.debug): minorimpact.fprint(f"write {f} to channel new.{args.id}")
                     channel.basic_publish(exchange='synkler', routing_key='new.' + args.id, body=pickle.dumps(files[f]))
                 elif (files[f]['state'] == 'done'):
                     if (cleanup_script is not None):
@@ -300,7 +275,7 @@ def main():
                         if (args.verbose): minorimpact.fprint("running cleanup script:" + ' '.join(command))
                         return_code = subprocess.call(command)
                         if (return_code != 0):
-                            minorimpact.fprint("{} cleanup script failed: {}".format(f, return_code))
+                            minorimpact.fprint(f"{f} cleanup script failed: {return_code}")
                         else:
                             if (args.verbose): minorimpact.fprint(" ... done")
                             # Since the file no longer lives in the download directory, delete it from the internal
@@ -338,6 +313,48 @@ def main():
     connection.close()
     # We don't strictly need to do this, but it's nice.
     os.remove(pidfile)
+
+def scan_folder(file_dir, mode, files, kill, verbose = False, debug = False):
+    if (verbose): print("scan_folders thread: started")
+    while(kill.is_set() is False):
+        # Look at any local files and do what needs doing.
+        for f in os.listdir(file_dir):
+            if (re.search('^\\.', f)):
+                continue
+
+            mtime = os.path.getmtime(file_dir + '/' + f)
+            size = minorimpact.dirsize(file_dir + '/' + f)
+            if (f in files):
+                if (size == files[f]['size'] and files[f]['mtime'] == mtime):
+                    # The file has stopped changing, we can assume it's no longer being written to -- grab the md5sum.
+                    if (files[f]['md5'] is None or files[f]['state'] == 'upload'):
+                        if (verbose): print(f"collecting md5 of {f}")
+                        md5 = minorimpact.md5dir(f'{file_dir}/{f}')
+                        files[f]['md5'] = md5
+                        if (debug): minorimpact.fprint(f"{f} md5:{md5}")
+                        if (mode == 'upload'):
+                            if (verbose): minorimpact.fprint(f"new file: {f}")
+                            files[f]['state'] = 'new'
+                else:
+                    files[f]['size'] = size
+                    files[f]['mtime'] = mtime
+                    #files[f]['mod_date'] = int(time.time())
+            else:
+                if (mode == 'central'):
+                    # These files are more than 30 minutes old and haven't been reported in, they can be
+                    #   axed.
+                    if (int(time.time()) - start_time > (keep_minutes * 60) and int(time.time()) - mtime > (keep_minutes * 60)):
+                        if (verbose): minorimpact.fprint(f"deleting {file_dir}/{f}")
+                        if (os.path.isdir(file_dir + '/' + f)):
+                            shutil.rmtree(file_dir + '/' + f)
+                        else:
+                            os.remove(file_dir + '/' + f)
+                elif (mode == 'upload'):
+                    files[f] = {'filename':f, 'pickle_protocol':4, 'mtime':mtime, 'size':size, 'state':'churn', 'md5':None, 'dir':file_dir, 'mod_date':int(time.time()) }
+
+        time.sleep(5)
+
+    if (verbose): print("scan_folders thread: stopped")
 
 if __name__ == '__main__':
     main()
