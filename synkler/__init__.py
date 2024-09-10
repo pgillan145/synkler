@@ -82,7 +82,7 @@ def main():
     kill = Event()
     scan_folder_thread = None
     try:
-        scan_folder_thread = Thread(target=scan_folder, name='scan_folder', args=[file_dir, mode, files, kill], kwargs={'verbose':args.verbose, 'debug':args.debug})
+        scan_folder_thread = Thread(target=scan_folder, name='scan_folder', args=[file_dir, mode, files, keep_minutes, kill], kwargs={'verbose':args.verbose, 'debug':args.debug})
         scan_folder_thread.start()
     except:
         sys.exit("Error starting threads")
@@ -310,7 +310,7 @@ def main():
     # We don't strictly need to do this, but it's nice.
     os.remove(pidfile)
 
-def scan_folder(file_dir, mode, files, kill, verbose = False, debug = False):
+def scan_folder(file_dir, mode, files, keep_minutes, kill, verbose = False, debug = False):
     start_time = int(time.time())
     if (verbose): print("scan_folders thread: started")
     while(kill.is_set() is False):
