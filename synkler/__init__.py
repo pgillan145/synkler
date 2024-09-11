@@ -65,6 +65,7 @@ def main():
         credentials = pika.PlainCredentials(username, password)
         connection_parameters = pika.ConnectionParameters(host=synkler_server, credentials = credentials)
 
+    if (args.verbose): minorimpact.fprint("connecting to message queue")
     connection = pika.BlockingConnection(connection_parameters)
     channel = connection.channel()
 
@@ -89,15 +90,21 @@ def main():
     files = {}
     kill = Event()
     scan_folder_thread = None
+    if (args.verbose): minorimpact.fprint("starting threads")
     try:
         scan_folder_thread = Thread(target=scan_folder, name='scan_folder', args=[file_dir, mode, files, keep_minutes, kill], kwargs={'verbose':args.verbose, 'debug':args.debug})
         scan_folder_thread.start()
-    except:
-        sys.exit("Error starting threads")
+    except Exception as e:
+        sys.exit(f"Error starting threads: {repr(e)}")
 
     transfer = None
-    while (True):
-        method, properties, body = channel.basic_get(queue = queue_name, auto_ack = True)
+    while (True and channel.is_open):
+        try:
+            method, properties, body = channel.basic_get(queue = queue_name, auto_ack = True)
+        except Exception as e:
+            minorimpact.fprint(f"{repr(e)}")
+            break
+
         while body != None:
             routing_key = method.routing_key
             file_data = pickle.loads(body)
@@ -243,7 +250,11 @@ def main():
                             os.remove(file_dir + '/' + f)
 
             # Get the next item from queue.
-            method, properties, body = channel.basic_get(queue = queue_name, auto_ack = True)
+            try:
+                method, properties, body = channel.basic_get(queue = queue_name, auto_ack = True)
+            except Exception as e:
+                minorimpact.fprint(f"{repr(e)}")
+                break
 
         if (transfer is not None and 'file' in transfer and transfer['file'] not in files):
             transfer = None
@@ -313,9 +324,14 @@ def main():
 
         time.sleep(5)
 
-    # TODO: Figure out a way to make sure these get called, or get rid of them.
-    connection.close()
-    # We don't strictly need to do this, but it's nice.
+    if (args.verbose): minorimpact.fprint("stopping threads")
+    kill.set()
+
+    if (connection.is_closed is False and connection.is_open is True):
+        if (args.verbose): minorimpact.fprint("closing connection")
+        connection.close()
+
+    if (args.verbose): minorimpact.fprint("removing pid file")
     os.remove(pidfile)
 
 def scan_folder(file_dir, mode, files, keep_minutes, kill, verbose = False, debug = False):
