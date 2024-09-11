@@ -5,3 +5,4 @@ config.py
 *.pyc
 .DS_Store
 dist/*
+*.cache

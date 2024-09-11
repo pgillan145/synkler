@@ -16,7 +16,7 @@ import sys
 from threading import Thread, Event
 import time
 
-__version__ = "0.0.9"
+__version__ = "0.0.10"
 
 def main():
     parser = argparse.ArgumentParser(description="Synkler")
@@ -33,14 +33,17 @@ def main():
     file_dir = config['default']['file_dir']
     keep_minutes = int(config['default']['keep_minutes']) if ('keep_minutes' in config['default']) else 30
     mode = config['default']['mode'] if ('mode' in config['default']) and config['default']['mode'] is not None else 'central'
+    password = config['default']['password'] if ('password' in config['default']) else None
     pidfile = config['default']['pidfile'] if ('pidfile' in config['default']) and config['default']['pidfile'] is not None else "/tmp/synkler.pid"
     rsync = config['default']['rsync'] if ('rsync' in config['default']) else None
     rsync_opts = config['default']['rsync_opts'] if ('rsync_opts' in config['default']) else ''
     rsync_opts = list(csv.reader([rsync_opts]))[0]
+    synkler_server = config['default']['synkler_server'] if ('synkler_server' in config['default']) else None
+    username = config['default']['username'] if ('username' in config['default']) else None
+
     if ('--checksum' not in rsync_opts): rsync_opts.append('--checksum')
     if ('--partial' not in rsync_opts): rsync_opts.append('--partial')
     if ('--delete-before' not in rsync_opts): rsync_opts.append('--delete-before')
-    synkler_server = config['default']['synkler_server'] if ('synkler_server' in config['default']) else None
 
     if (file_dir is None):
         sys.exit("'file_dir' is not set")
@@ -57,7 +60,12 @@ def main():
         if (args.verbose): sys.exit() #sys.exit('already running')
         else: sys.exit()
 
-    connection = pika.BlockingConnection(pika.ConnectionParameters(host=synkler_server))
+    connection_parameters = pika.ConnectionParameters(host=synkler_server)
+    if (username is not None and password is not None):
+        credentials = pika.PlainCredentials(username, password)
+        connection_parameters = pika.ConnectionParameters(host=synkler_server, credentials = credentials)
+
+    connection = pika.BlockingConnection(connection_parameters)
     channel = connection.channel()
 
     channel.exchange_declare(exchange='synkler', exchange_type='topic')

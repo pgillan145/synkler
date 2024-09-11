@@ -34,3 +34,7 @@ cleanup_script = mv %F /home/user/downloads
 # What percentage of disk space to leave free on '/'.  Synkler will not signal an upload to start if the amount of free space + the size of the fill
 # will drop the amount of empty space on the disk below X percent. (default: 5)
 free_percent = 5
+
+# Optional message queue credentials
+username = 'username'
+password = 'password'
