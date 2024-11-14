@@ -2,6 +2,7 @@
 
 import argparse
 import csv
+from dumper import dump
 import hashlib
 import minorimpact
 import minorimpact.config
@@ -16,7 +17,7 @@ import sys
 from threading import Thread, Event
 import time
 
-__version__ = "0.0.10"
+__version__ = "0.0.11"
 
 def main():
     parser = argparse.ArgumentParser(description="Synkler")
@@ -60,14 +61,22 @@ def main():
         if (args.verbose): sys.exit() #sys.exit('already running')
         else: sys.exit()
 
-    connection_parameters = pika.ConnectionParameters(host=synkler_server)
+    connection_parameters = pika.ConnectionParameters(host = synkler_server)
     if (username is not None and password is not None):
         credentials = pika.PlainCredentials(username, password)
-        connection_parameters = pika.ConnectionParameters(host=synkler_server, credentials = credentials)
+        connection_parameters = pika.ConnectionParameters(host = synkler_server, credentials = credentials)
 
+    connection = None
+    channel = None
     if (args.verbose): minorimpact.fprint("connecting to message queue")
-    connection = pika.BlockingConnection(connection_parameters)
-    channel = connection.channel()
+    try:
+        connection = pika.BlockingConnection(connection_parameters)
+        channel = connection.channel()
+    except Exception as e:
+        #dump(credentials)
+        #dump(connection_parameters)
+        print(e)
+        sys.exit()
 
     channel.exchange_declare(exchange='synkler', exchange_type='topic')
     result = channel.queue_declare(queue='', exclusive=True)
